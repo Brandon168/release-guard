@@ -1,0 +1,230 @@
+[
+  {
+    "id": "crc-001",
+    "title": "Billing banner copy update behind existing flag",
+    "category": "application",
+    "input_type": "pr_diff",
+    "artifact_text": "diff --git a/apps/billing-web/src/banner.tsx b/apps/billing-web/src/banner.tsx\n- \"Your payment is overdue.\"\n+ \"Payment overdue. Update billing details to avoid interruption.\"\nNote: existing LaunchDarkly flag `billing_banner_v2` remains in place.",
+    "expected_risk": "low",
+    "expected_blast_radius": "Billing web overdue banner only; no API, schema, or infra impact in evidence.",
+    "expected_key_concerns": [
+      "Confirm the flag already exists and the default targeting is unchanged.",
+      "Verify the copy change does not require localization or legal review."
+    ],
+    "expected_missing_info": [
+      "Planned rollout timing or cohort is not shown."
+    ],
+    "expected_rollback_notes": "Disable the existing flag or revert the copy commit.",
+    "expected_exec_summary": "Low-risk content change limited to one web surface and easily reversible."
+  },
+  {
+    "id": "crc-002",
+    "title": "PDF worker memory limit increase",
+    "category": "infrastructure",
+    "input_type": "config_change",
+    "artifact_text": "kubernetes/deploy/pdf-worker.yaml\nresources:\n  limits:\n-   memory: \"512Mi\"\n+   memory: \"768Mi\"\nReplicas unchanged: 6\nReason: repeated OOMKilled during month-end exports",
+    "expected_risk": "low",
+    "expected_blast_radius": "Async PDF export workers in production; no direct request-path or data-model change.",
+    "expected_key_concerns": [
+      "Check cluster headroom before increasing memory across all replicas.",
+      "Monitor queue depth and pod restarts after rollout."
+    ],
+    "expected_missing_info": [
+      "Current node capacity and headroom are not included."
+    ],
+    "expected_rollback_notes": "Restore the previous limit and redeploy the worker if capacity pressure increases.",
+    "expected_exec_summary": "Low-risk infrastructure tuning for a non-customer-facing worker, with localized capacity concerns."
+  },
+  {
+    "id": "crc-003",
+    "title": "Checkout one-page experience feature flag rollout",
+    "category": "rollout",
+    "input_type": "change_ticket",
+    "artifact_text": "CHG-4821\nEnable `checkout_onepage_v2` in prod:\n- employees: 100%\n- us-east customers: 5% -> 25% after 2 hours\nScope: checkout-web only\nSuccess metric: checkout completion rate\nRollback: set flag to 0%",
+    "expected_risk": "medium",
+    "expected_blast_radius": "Checkout web traffic in the initial customer cohort; conversion and payment initiation behavior may shift.",
+    "expected_key_concerns": [
+      "Customer-facing checkout changes can affect abandonment and payment errors.",
+      "The move from 5% to 25% needs clear stop/go guardrails."
+    ],
+    "expected_missing_info": [
+      "No explicit owner or approval gate for advancing rollout stages.",
+      "No evidence that backend APIs are unchanged."
+    ],
+    "expected_rollback_notes": "Return the flag to 0% or the prior cohort immediately if conversion or payment metrics regress.",
+    "expected_exec_summary": "Medium-risk rollout on a critical customer journey, mitigated by flag control and staged exposure."
+  },
+  {
+    "id": "crc-004",
+    "title": "Concurrent index migration on orders table",
+    "category": "database",
+    "input_type": "pr_diff",
+    "artifact_text": "-- db/migrations/20260317_add_orders_created_idx.sql\nCREATE INDEX CONCURRENTLY idx_orders_created_at ON orders (created_at);\n\n-- reports/order_latency.sql now filters on created_at range",
+    "expected_risk": "medium",
+    "expected_blast_radius": "Orders primary and replicas; possible write amplification, lock pressure, and replica lag during build.",
+    "expected_key_concerns": [
+      "Concurrent index creation still adds load on large production tables.",
+      "Replication lag and write latency should be watched during execution."
+    ],
+    "expected_missing_info": [
+      "Table size and expected migration duration are not provided.",
+      "Execution window and on-call coverage are not shown."
+    ],
+    "expected_rollback_notes": "Drop the new index if write latency or replica lag becomes unacceptable.",
+    "expected_exec_summary": "Medium-risk additive database migration: safer than a blocking index, but still material on a production orders table."
+  },
+  {
+    "id": "crc-005",
+    "title": "JWT library major upgrade for security advisory",
+    "category": "security",
+    "input_type": "pr_diff",
+    "artifact_text": "package.json\n- \"jsonwebtoken\": \"^8.5.1\"\n+ \"jsonwebtoken\": \"^9.0.2\"\nReason: token verification bypass advisory\n\nauth-api/src/verify.ts\n- jwt.verify(token, key)\n+ jwt.verify(token, key, { algorithms: [\"RS256\"] })",
+    "expected_risk": "medium",
+    "expected_blast_radius": "Auth API and any application depending on issued or verified tokens; login and service auth may be affected.",
+    "expected_key_concerns": [
+      "Major-version auth library changes can reject tokens that previously passed.",
+      "A security fix is desirable, but auth regressions have broad user impact."
+    ],
+    "expected_missing_info": [
+      "Compatibility testing for existing token issuers and session refresh is not shown.",
+      "There is no stated plan for existing sessions if verification behavior changes."
+    ],
+    "expected_rollback_notes": "Revert the dependency only with explicit risk acceptance for the advisory, and document any compensating controls.",
+    "expected_exec_summary": "Medium-risk security upgrade on a critical auth path: needed for exposure reduction, but behavior changes can break login flows."
+  },
+  {
+    "id": "crc-006",
+    "title": "Tighten production application security group ingress",
+    "category": "security",
+    "input_type": "terraform_plan",
+    "artifact_text": "# module.app_sg.aws_security_group_rule.ingress_https will be replaced\n- cidr_blocks     = [\"10.0.0.0/8\"]\n+ security_groups = [\"sg-alb-prod\", \"sg-bastion-prod\"]\nPlan: 2 to change, 0 to add, 0 to destroy\nApplies to prod app subnet in us-east-1",
+    "expected_risk": "high",
+    "expected_blast_radius": "Services in the prod app subnet in us-east-1; missed allowlist entries can cause broad connectivity loss.",
+    "expected_key_concerns": [
+      "Any omitted upstream source can break customer traffic or operational access.",
+      "Health checks, internal callers, and break-glass paths all need validation."
+    ],
+    "expected_missing_info": [
+      "The complete inventory of allowed sources is not in evidence.",
+      "No non-prod validation or canary test results are included."
+    ],
+    "expected_rollback_notes": "Re-apply the prior Terraform plan or restore the previous rule set immediately if target health or connection success drops.",
+    "expected_exec_summary": "High-risk network control change with potentially wide blast radius if the new allowlist is incomplete."
+  },
+  {
+    "id": "crc-007",
+    "title": "Payments gateway endpoint env var cutover",
+    "category": "config",
+    "input_type": "config_change",
+    "artifact_text": "Deployment env\n- PAYMENTS_API_BASE_URL=https://payments.internal/v1\n+ PAYMENTS_API_BASE_URL=https://payments-v2.internal/v1\nServices: checkout-api, refund-worker\nReason: cut over to new gateway\nNo code diff attached",
+    "expected_risk": "high",
+    "expected_blast_radius": "Checkout and refund payment calls; charge, capture, and refund flows depend on the new endpoint behaving identically.",
+    "expected_key_concerns": [
+      "A single env var redirects critical payment traffic and can change auth, schemas, or timeout behavior.",
+      "No code diff means contract assumptions and integration coverage are unclear."
+    ],
+    "expected_missing_info": [
+      "TLS/auth compatibility with the new gateway is not shown.",
+      "No staged rollout or shadow-test evidence is included.",
+      "It is unclear whether the old endpoint stays available for rollback."
+    ],
+    "expected_rollback_notes": "Restore the previous env var and redeploy or restart the affected services while keeping the old gateway path available.",
+    "expected_exec_summary": "High-risk config-only change because it reroutes critical payment traffic without attached compatibility evidence."
+  },
+  {
+    "id": "crc-008",
+    "title": "Drop legacy customer tier column",
+    "category": "database",
+    "input_type": "change_ticket",
+    "artifact_text": "CHG-4894\nMigration `20260320_drop_customer_legacy_tier.sql`\nALTER TABLE customers DROP COLUMN legacy_tier;\nJustification: field unused after loyalty rewrite\nExecution window: Sat 22:00 CT\nRollback: restore from snapshot if needed",
+    "expected_risk": "high",
+    "expected_blast_radius": "Customers table readers, exports, and background jobs still referencing the dropped column.",
+    "expected_key_concerns": [
+      "This is a destructive schema change with no instant rollback.",
+      "Hidden downstream consumers such as ETL jobs and ad hoc reports are a common failure point."
+    ],
+    "expected_missing_info": [
+      "No dependency scan or evidence that all consumers stopped reading the column.",
+      "Restore timing and tested recovery steps are not shown."
+    ],
+    "expected_rollback_notes": "Treat rollback as recovery, not a quick revert; prefer a tested snapshot restore or emergency re-add plus backfill plan.",
+    "expected_exec_summary": "High-risk destructive database migration that should not proceed without stronger dependency and recovery evidence."
+  },
+  {
+    "id": "crc-009",
+    "title": "Blue-green cutover for orders API gateway",
+    "category": "rollout",
+    "input_type": "release_note",
+    "artifact_text": "Release 2026.03.18\nSwitch `orders-api` production traffic from gateway-blue to gateway-green at 50% for 30 min, then 100%.\nNo app code changes in this release.\nHealth checks: p95 latency, 5xx rate, order submit success",
+    "expected_risk": "medium",
+    "expected_blast_radius": "Orders API production traffic during the cutover; customer order submission is in scope.",
+    "expected_key_concerns": [
+      "Traffic-management changes can surface config drift even without code changes.",
+      "The jump from 50% to 100% needs explicit rollback thresholds."
+    ],
+    "expected_missing_info": [
+      "No evidence that gateway-green has matched certificates and upstream integrations.",
+      "Rollback trigger thresholds are not specified."
+    ],
+    "expected_rollback_notes": "Shift traffic back to gateway-blue if latency, 5xx rate, or order success degrades.",
+    "expected_exec_summary": "Medium-risk rollout on a core API, mitigated by blue-green control but still sensitive because it changes live traffic routing."
+  },
+  {
+    "id": "crc-010",
+    "title": "Reporting worker readiness probe delay increase",
+    "category": "infrastructure",
+    "input_type": "config_change",
+    "artifact_text": "k8s/deployments/reporting-worker.yaml\n- initialDelaySeconds: 10\n+ initialDelaySeconds: 30\nReason: container warms JVM before accepting work\nOnly `reporting-worker` deployment affected",
+    "expected_risk": "low",
+    "expected_blast_radius": "Reporting-worker startup behavior only; no steady-state request or schema impact in evidence.",
+    "expected_key_concerns": [
+      "Longer startup time may slow replacements during rollout.",
+      "Queue backlog should be checked if multiple pods restart together."
+    ],
+    "expected_missing_info": [
+      "Deployment surge and unavailable settings are not shown."
+    ],
+    "expected_rollback_notes": "Restore the previous probe delay and redeploy if rollout speed or worker availability regresses.",
+    "expected_exec_summary": "Low-risk infrastructure tuning scoped to one async worker, with minor rollout-speed considerations."
+  },
+  {
+    "id": "crc-011",
+    "title": "Vague production API performance tuning request",
+    "category": "application",
+    "input_type": "change_ticket",
+    "artifact_text": "CHG-4910\n\"Optimize production API performance before customer summit.\"\nNotes: \"May update caching, DB queries, and autoscaling if needed.\"\nServices: TBD\nRollout / rollback: TBD",
+    "expected_risk": "unknown",
+    "expected_blast_radius": "Unknown; the text implies production-facing changes across multiple layers, but the actual systems are not identified.",
+    "expected_key_concerns": [
+      "The change scope is too vague for a defensible risk tier.",
+      "Possible impact spans application, database, cache, and autoscaling if all hinted areas are touched."
+    ],
+    "expected_missing_info": [
+      "Exact systems, environments, and artifacts changing.",
+      "Concrete rollout plan, rollback plan, and success metrics.",
+      "Whether the work is one change or several separate changes."
+    ],
+    "expected_rollback_notes": "Rollback cannot be evaluated responsibly until the actual change set is specified.",
+    "expected_exec_summary": "Risk should remain unknown because the evidence does not describe a concrete production change."
+  },
+  {
+    "id": "crc-012",
+    "title": "Shared cache layer rollout with insufficient evidence",
+    "category": "infrastructure",
+    "input_type": "release_note",
+    "artifact_text": "Release note draft:\n\"Introduce new shared cache layer for core services next sprint to reduce latency.\"\nNo service list, topology, TTL policy, tenancy model, or migration plan included.",
+    "expected_risk": "unknown",
+    "expected_blast_radius": "Unknown shared-service scope; could affect multiple applications, but the artifact does not say which ones.",
+    "expected_key_concerns": [
+      "A shared cache can create cross-service failures or stale-data issues.",
+      "There is not enough implementation detail to rate the change credibly."
+    ],
+    "expected_missing_info": [
+      "Which services, regions, and tenants are in scope.",
+      "Cache invalidation, fallback, and bypass behavior.",
+      "Rollout sequencing and rollback mechanics."
+    ],
+    "expected_rollback_notes": "Require an explicit disable or bypass plan before rollout; current evidence is insufficient.",
+    "expected_exec_summary": "Unknown risk: potentially broad infrastructure impact, but the artifact lacks the details needed for a reliable assessment."
+  }
+]

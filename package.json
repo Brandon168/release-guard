@@ -1,0 +1,34 @@
+{
+  "name": "@takehome/change-risk-copilot",
+  "version": "0.1.0",
+  "description": "Production-minded AI change risk analysis demo built with Next.js and the Vercel AI SDK.",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx scripts/eval.ts",
+    "risk:pr": "tsx scripts/pr-risk.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm eval"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.118",
+    "ai": "^6.0.116",
+    "next": "^16.1.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.1.7",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

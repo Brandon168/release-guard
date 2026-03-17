@@ -1,0 +1,133 @@
+name: PR Risk Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  risk:
+    runs-on: ubuntu-latest
+    env:
+      RISK_ENDPOINT_URL: ${{ secrets.RISK_ENDPOINT_URL }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run baseline checks
+        run: pnpm check
+
+      - name: Build PR risk payload
+        id: risk
+        run: pnpm tsx scripts/build-pr-risk-payload.ts --output pr-risk-request.json
+
+      - name: Call deployed Vercel risk endpoint
+        continue-on-error: true
+        run: |
+          test -n "$RISK_ENDPOINT_URL"
+          test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          curl -sS --fail-with-body \
+            -X POST "$RISK_ENDPOINT_URL" \
+            -H "Content-Type: application/json" \
+            -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            --data @pr-risk-request.json \
+            > pr-risk.json
+
+      - name: Comment on pull request
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'pr-risk.json';
+            if (!fs.existsSync(path)) {
+              core.warning('pr-risk.json was not created.');
+              return;
+            }
+
+            const marker = '<!-- change-risk-copilot -->';
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const body = [
+              marker,
+              '## Change Risk Gate',
+              '',
+              `- Status: \`${data.decision.status}\``,
+              `- Risk grade: \`${data.assessment.riskLevel}\``,
+              `- Confidence: \`${data.assessment.confidence}\``,
+              `- Expected scope: \`${data.assessment.expectedScope}\``,
+              `- Recommended action: \`${data.assessment.recommendedAction}\``,
+              '',
+              `- Endpoint: \`${process.env.RISK_ENDPOINT_URL}\``,
+              '',
+              '### Review Path',
+              `- Path: \`${data.trail.reviewPath}\``,
+              `- Primary model: \`${data.trail.primaryModelId ?? 'deterministic fallback'}\``,
+              data.trail.escalationTriggered
+                ? `- Escalation: \`${data.trail.escalationModelId ?? 'none'}\` because ${data.trail.escalationReason ?? 'the initial review was uncertain'}`
+                : '- Escalation: not needed',
+              `- Final source: \`${data.trail.finalModelId ?? 'deterministic fallback'}\``,
+              '',
+              data.decision.reasons.length ? '### Gate Reasons' : '### Gate Reasons',
+              ...(data.decision.reasons.length
+                ? data.decision.reasons.map(reason => `- ${reason}`)
+                : ['- No policy issues detected.']),
+              '',
+              '### Missing Evidence',
+              ...(data.assessment.missingInfo.length
+                ? data.assessment.missingInfo.map(item => `- ${item}`)
+                : ['- None.']),
+              '',
+              '### Executive Summary',
+              data.assessment.executiveSummary,
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(comment =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Enforce gate
+        if: always()
+        run: |
+          node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('pr-risk.json','utf8')); if (data.decision.status === 'fail') process.exit(1);"

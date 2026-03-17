@@ -1,0 +1,47 @@
+version: 1
+
+review_defaults:
+  prefer_unknown_when_evidence_is_weak: true
+  require_grounding_in_artifact: true
+  require_repo_examples_to_be_treated_as_calibration_only: true
+
+non_runtime_paths:
+  - .changeRisk/
+
+non_runtime_extensions:
+  - .md
+  - .mdx
+
+sensitive_paths:
+  - path: app/api/github/risk/route.ts
+    reason: Changes here affect the machine-consumable endpoint used in CI.
+    default_risk_bias: high
+  - path: lib/review.ts
+    reason: Changes here affect model orchestration and structured grading behavior.
+    default_risk_bias: high
+  - path: lib/risk-engine.ts
+    reason: Changes here affect the deterministic baseline, fallback, and eval story.
+    default_risk_bias: high
+  - path: lib/risk-policy.ts
+    reason: Changes here can alter pass, warn, fail outcomes for GitHub reviews.
+    default_risk_bias: high
+  - path: lib/artifact-ingestion.ts
+    reason: Changes here can silently change what evidence reaches the grader.
+    default_risk_bias: medium
+  - path: components/change-risk-workbench.tsx
+    reason: Changes here are usually presentation-level unless they misstate grading results.
+    default_risk_bias: medium
+  - path: presentation/
+    reason: Presentation-only changes are usually not runtime critical.
+    default_risk_bias: low
+
+required_questions_for_ambiguous_changes:
+  - What services or systems are actually in scope?
+  - What is the rollout strategy?
+  - What is the rollback path?
+  - What telemetry confirms a safe deploy?
+
+repo_specific_expectations:
+  - Do not over-credit demo polish as operational safety.
+  - Treat disagreement between deterministic and model assessments as noteworthy.
+  - Keep judgments concise and defensible for a reviewer who has not read the whole repo.
