@@ -3,6 +3,7 @@ import {
   evaluatePullRequestRisk,
   type GitHubChangedFile,
 } from '@/lib/github-risk';
+import { hasRiskApiAccess } from '@/lib/request-auth';
 import type { RiskPolicy } from '@/lib/risk-policy';
 import type { ChangeRequest } from '@/lib/types';
 
@@ -18,6 +19,18 @@ type GitHubRiskRequestBody = {
 };
 
 export async function POST(req: Request) {
+  if (!hasRiskApiAccess(req)) {
+    return NextResponse.json(
+      { error: 'Unauthorized.' },
+      {
+        status: 401,
+        headers: {
+          'WWW-Authenticate': 'Bearer realm="Release Guard PR Risk API"',
+        },
+      },
+    );
+  }
+
   let body: GitHubRiskRequestBody;
 
   try {
@@ -40,5 +53,6 @@ export async function POST(req: Request) {
     trail: result.trail,
     request: result.request,
     toolActivity: result.toolActivity,
+    commentBody: result.commentBody,
   });
 }

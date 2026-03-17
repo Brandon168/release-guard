@@ -14,6 +14,7 @@ jobs:
     env:
       RISK_ENDPOINT_URL: ${{ secrets.RISK_ENDPOINT_URL }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      RISK_API_KEY: ${{ secrets.RISK_API_KEY }}
 
     steps:
       - name: Checkout
@@ -45,10 +46,12 @@ jobs:
         run: |
           test -n "$RISK_ENDPOINT_URL"
           test -n "$VERCEL_AUTOMATION_BYPASS_SECRET"
+          test -n "$RISK_API_KEY"
           curl -sS --fail-with-body \
             -X POST "$RISK_ENDPOINT_URL" \
             -H "Content-Type: application/json" \
             -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            -H "Authorization: Bearer $RISK_API_KEY" \
             --data @pr-risk-request.json \
             > pr-risk.json
 
@@ -66,39 +69,7 @@ jobs:
 
             const marker = '<!-- release-guard -->';
             const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-            const body = [
-              marker,
-              '## Release Guard',
-              '',
-              `- Status: \`${data.decision.status}\``,
-              `- Risk grade: \`${data.assessment.riskLevel}\``,
-              `- Confidence: \`${data.assessment.confidence}\``,
-              `- Expected scope: \`${data.assessment.expectedScope}\``,
-              `- Recommended action: \`${data.assessment.recommendedAction}\``,
-              '',
-              `- Endpoint: \`${process.env.RISK_ENDPOINT_URL}\``,
-              '',
-              '### Review Path',
-              `- Path: \`${data.trail.reviewPath}\``,
-              `- Primary model: \`${data.trail.primaryModelId ?? 'deterministic fallback'}\``,
-              data.trail.escalationTriggered
-                ? `- Escalation: \`${data.trail.escalationModelId ?? 'none'}\` because ${data.trail.escalationReason ?? 'the initial review was uncertain'}`
-                : '- Escalation: not needed',
-              `- Final source: \`${data.trail.finalModelId ?? 'deterministic fallback'}\``,
-              '',
-              data.decision.reasons.length ? '### Gate Reasons' : '### Gate Reasons',
-              ...(data.decision.reasons.length
-                ? data.decision.reasons.map(reason => `- ${reason}`)
-                : ['- No policy issues detected.']),
-              '',
-              '### Missing Evidence',
-              ...(data.assessment.missingInfo.length
-                ? data.assessment.missingInfo.map(item => `- ${item}`)
-                : ['- None.']),
-              '',
-              '### Executive Summary',
-              data.assessment.executiveSummary,
-            ].join('\n');
+            const body = data.commentBody;
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
