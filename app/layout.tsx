@@ -14,9 +14,9 @@ const bodyFont = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'Change Risk Copilot',
+  title: 'Release Guard',
   description:
-    'A small, production-minded AI app that assesses proposed software and infrastructure changes.',
+    'A small, production-minded AI app that assesses proposed software and infrastructure changes before release.',
 };
 
 export const viewport: Viewport = {

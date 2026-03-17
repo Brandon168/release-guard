@@ -504,7 +504,7 @@ export function ChangeRiskWorkbench() {
         submitRequest.title ||
         submitRequest.summary ||
         submitRequest.artifactText ||
-        'Assess the change risk for this artifact.',
+        'Assess the release risk for this artifact.',
     }, {
       body: {
         request: submitRequest,
@@ -518,7 +518,7 @@ export function ChangeRiskWorkbench() {
         <div className="hero hero-primary hero-full">
           <span className="eyebrow">Sr Solutions Architect Take-Home</span>
           <div>
-            <h1>Change Risk Copilot</h1>
+            <h1>Release Guard</h1>
             <p>
               Paste a proposed change artifact to run a cheap first-pass review,
               auto-escalate when the judgment is uncertain, and fall back safely
@@ -1375,13 +1375,13 @@ export function ChangeRiskWorkbench() {
                           <div className="github-comment-header">
                             <div className="github-avatar">CR</div>
                             <div className="github-comment-meta">
-                              <strong>change-risk-copilot[bot]</strong> commented
+                              <strong>release-guard[bot]</strong> commented
                               just now
                             </div>
                           </div>
 
                           <div className="github-comment-body">
-                            <h3>Change Risk Gate</h3>
+                            <h3>Release Guard</h3>
 
                             <div className="github-comment-section">
                               <ul className="github-bullet-list">

@@ -1,6 +1,6 @@
-# Change Risk Copilot
+# Release Guard
 
-Change Risk Copilot is a compact, production-minded AI app for analyzing proposed software and infrastructure changes. It takes a proposed change, streams back a defensible assessment, and treats missing evidence as a first-class outcome instead of a failure.
+Release Guard is a compact, production-minded AI app for analyzing proposed software and infrastructure changes. It takes a proposed change, streams back a defensible assessment, and treats missing evidence as a first-class outcome instead of a failure.
 
 ## Minimal Architecture
 

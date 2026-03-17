@@ -1,6 +1,6 @@
 # Repository Grounding Pack
 
-This folder is the committed, repo-specific context pack for Change Risk Copilot.
+This folder is the committed, repo-specific context pack for Release Guard.
 
 The goal is to keep project context separate from the model choice. Any model can
 be swapped in as long as it receives the same grounding pack, deterministic

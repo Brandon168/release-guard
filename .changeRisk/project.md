@@ -2,18 +2,11 @@
 
 ## Repository Shape
 
-This repository contains two independent projects in one workspace:
-
-- the product demo app in the repo root
-- a separate Slidev presentation in `presentation/`
-
-The primary product surface is the Next.js app in the repo root. The presentation
-package is important for the demo, but it is not part of the runtime risk-analysis
-path.
+This repository contains the product demo app in the repo root.
 
 ## What The App Does
 
-Change Risk Copilot analyzes proposed software and infrastructure changes and
+Release Guard analyzes proposed software and infrastructure changes and
 returns a conservative risk judgment with explicit missing evidence, rollback
 guidance, and a recommended action.
 

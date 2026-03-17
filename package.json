@@ -1,7 +1,7 @@
 {
-  "name": "@takehome/change-risk-copilot",
+  "name": "@takehome/release-guard",
   "version": "0.1.0",
-  "description": "Production-minded AI change risk analysis demo built with Next.js and the Vercel AI SDK.",
+  "description": "Production-minded AI release risk review demo built with Next.js and the Vercel AI SDK.",
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {

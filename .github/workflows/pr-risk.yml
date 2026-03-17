@@ -64,11 +64,11 @@ jobs:
               return;
             }
 
-            const marker = '<!-- change-risk-copilot -->';
+            const marker = '<!-- release-guard -->';
             const data = JSON.parse(fs.readFileSync(path, 'utf8'));
             const body = [
               marker,
-              '## Change Risk Gate',
+              '## Release Guard',
               '',
               `- Status: \`${data.decision.status}\``,
               `- Risk grade: \`${data.assessment.riskLevel}\``,

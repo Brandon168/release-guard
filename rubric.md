@@ -1,4 +1,4 @@
-# Change Risk Copilot Rubric
+# Release Guard Rubric
 
 Use this rubric as a simple pass/fail check per case.
 
