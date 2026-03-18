@@ -315,6 +315,7 @@ textarea {
 .field input:focus-visible,
 .field select:focus-visible,
 .field textarea:focus-visible,
+.pipeline-option-toggle input:focus-visible,
 .action-button:focus-visible,
 .example-card:focus-visible,
 .sample-button:focus-visible,
@@ -726,6 +727,34 @@ textarea {
 
 .pipeline-panel {
   gap: 1rem;
+}
+
+.pipeline-option {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(7, 16, 21, 0.72);
+}
+
+.pipeline-option-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pipeline-option-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.pipeline-option .helper {
+  margin: 0;
 }
 
 .pipeline-summary-grid,

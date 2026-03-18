@@ -388,6 +388,7 @@ export function ChangeRiskWorkbench({
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPipelineSetup, setShowPipelineSetup] = useState(false);
+  const [simulateModelFallback, setSimulateModelFallback] = useState(false);
   const [showReviewComparison, setShowReviewComparison] = useState(false);
   const [githubPreview, setGitHubPreview] = useState<GitHubPreviewData | null>(
     null,
@@ -534,6 +535,7 @@ export function ChangeRiskWorkbench({
     setReviewResult(null);
     setGitHubPreview(null);
     setReviewProgress(null);
+    setSimulateModelFallback(false);
     setShowReviewComparison(false);
     setActiveResultsView('summary');
     setMessages([]);
@@ -563,6 +565,9 @@ export function ChangeRiskWorkbench({
     }, {
       body: {
         github: buildGitHubRequestBody(),
+        pipeline: {
+          simulateModelFallback,
+        },
         request: submitRequest,
       },
     });
@@ -924,6 +929,27 @@ export function ChangeRiskWorkbench({
                         Safety net for evals, gating, and model failure.
                       </div>
                     </div>
+                  </div>
+
+                  <div className="pipeline-option">
+                    <label
+                      className="pipeline-option-toggle"
+                      htmlFor="simulate-model-fallback"
+                    >
+                      <input
+                        id="simulate-model-fallback"
+                        type="checkbox"
+                        checked={simulateModelFallback}
+                        onChange={event =>
+                          setSimulateModelFallback(event.target.checked)
+                        }
+                      />
+                      <span>Simulate model fallback</span>
+                    </label>
+                    <p className="helper">
+                      Skip AI model calls and force the deterministic fallback
+                      path for testing.
+                    </p>
                   </div>
 
                   <div className="source-note">

@@ -34,6 +34,7 @@ export type PullRequestRiskInput = {
   files?: GitHubChangedFile[];
   overrides?: Partial<ChangeRequest>;
   policy?: Partial<RiskPolicy>;
+  simulateModelFallback?: boolean;
 };
 
 export type PullRequestRiskResult = {
@@ -258,7 +259,9 @@ export async function evaluatePullRequestRisk(
     };
   }
 
-  const review = await reviewChangeRisk(request);
+  const review = await reviewChangeRisk(request, {
+    simulateModelFallback: input.simulateModelFallback,
+  });
   const decision = evaluateRiskPolicy({
     assessment: review.assessment,
     trail: review.trail,

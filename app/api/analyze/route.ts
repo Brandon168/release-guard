@@ -29,6 +29,9 @@ type AnalyzeRequestBody = {
   messages?: AnalysisUIMessage[];
   request?: Partial<ChangeRequest>;
   fixtureId?: string;
+  pipeline?: {
+    simulateModelFallback?: boolean;
+  };
   github?: {
     title?: string;
     body?: string;
@@ -77,6 +80,7 @@ export async function POST(req: Request) {
   const fixture =
     typeof body.fixtureId === 'string' ? getFixtureById(body.fixtureId) : undefined;
   const latestUserText = extractLatestUserText(originalMessages);
+  const simulateModelFallback = body.pipeline?.simulateModelFallback === true;
 
   const request = normalizeChangeRequest({
     ...fixture?.request,
@@ -99,6 +103,7 @@ export async function POST(req: Request) {
           const githubResult = await evaluatePullRequestRisk({
             ...body.github,
             overrides: request,
+            simulateModelFallback,
           });
           reviewResult = {
             baselineAssessment: githubResult.baselineAssessment,
@@ -116,6 +121,7 @@ export async function POST(req: Request) {
             onProgress: progress => {
               writer.write(createProgressChunk(progress));
             },
+            simulateModelFallback,
           });
           const decision = evaluateRiskPolicy({
             assessment: reviewResult.assessment,

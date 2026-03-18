@@ -313,13 +313,32 @@ export async function reviewChangeRisk(
   input: ChangeRequest,
   options: {
     onProgress?: (event: ReviewProgressData) => void;
+    simulateModelFallback?: boolean;
   } = {},
 ): Promise<ChangeReviewResult> {
   const request = normalizeChangeRequest(input);
   const baselineAssessment = assessChangeRisk(request);
-  const repoGrounding = await loadRepoGrounding();
   const gatewayAvailable = hasGatewayAccess();
   const { primaryModelId, escalationModelId } = getConfiguredReviewModels();
+  const simulateModelFallback = options.simulateModelFallback === true;
+
+  if (simulateModelFallback) {
+    options.onProgress?.({
+      stage: 'fallback',
+      label: 'Deterministic fallback',
+      detail: 'Simulated fallback is enabled, so the deterministic baseline became the final review.',
+      modelId: null,
+    });
+
+    return buildDeterministicFallbackReview({
+      request,
+      baselineAssessment,
+      gatewayAvailable,
+      primaryModelId,
+      escalationModelId,
+      fallbackReason: 'Simulated model fallback is enabled for this run.',
+    });
+  }
 
   if (!gatewayAvailable) {
     options.onProgress?.({
@@ -338,6 +357,8 @@ export async function reviewChangeRisk(
       fallbackReason: 'AI Gateway credentials are not configured.',
     });
   }
+
+  const repoGrounding = await loadRepoGrounding();
 
   options.onProgress?.({
     stage: 'primary',

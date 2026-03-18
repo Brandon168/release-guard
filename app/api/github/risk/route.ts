@@ -16,6 +16,7 @@ type GitHubRiskRequestBody = {
   files?: GitHubChangedFile[];
   overrides?: Partial<ChangeRequest>;
   policy?: Partial<RiskPolicy>;
+  simulateModelFallback?: boolean;
 };
 
 export async function POST(req: Request) {
