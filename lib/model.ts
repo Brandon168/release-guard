@@ -24,6 +24,9 @@ const gatewayModelIds = new Set<GatewayModelId>(
   REVIEW_MODEL_OPTIONS.map(option => option.id),
 );
 
+const DEFAULT_PRIMARY_MODEL: GatewayModelId = 'amazon/nova-micro';
+const DEFAULT_ESCALATION_MODEL: GatewayModelId = 'google/gemini-3-flash';
+
 export function hasGatewayAccess() {
   return Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL);
 }
@@ -33,26 +36,31 @@ export function isGatewayModelId(value: string): value is GatewayModelId {
 }
 
 export function getConfiguredReviewModels() {
-  const primaryModelId = process.env.RISK_PRIMARY_MODEL?.trim();
-  const escalationModelId = process.env.RISK_ESCALATION_MODEL?.trim();
+  const configuredPrimaryModelId = process.env.RISK_PRIMARY_MODEL?.trim();
+  const configuredEscalationModelId = process.env.RISK_ESCALATION_MODEL?.trim();
+  const allowedIds = REVIEW_MODEL_OPTIONS.map(option => option.id).join(', ');
 
-  if (!primaryModelId) {
-    throw new Error('Missing required env var: RISK_PRIMARY_MODEL');
-  }
+  const primaryModelId =
+    configuredPrimaryModelId && isGatewayModelId(configuredPrimaryModelId)
+      ? configuredPrimaryModelId
+      : DEFAULT_PRIMARY_MODEL;
+  const escalationModelId =
+    configuredEscalationModelId && isGatewayModelId(configuredEscalationModelId)
+      ? configuredEscalationModelId
+      : DEFAULT_ESCALATION_MODEL;
 
-  if (!isGatewayModelId(primaryModelId)) {
-    throw new Error(
-      `Invalid RISK_PRIMARY_MODEL: ${primaryModelId}. Expected one of: ${REVIEW_MODEL_OPTIONS.map(option => option.id).join(', ')}`,
+  if (configuredPrimaryModelId && !isGatewayModelId(configuredPrimaryModelId)) {
+    console.warn(
+      `Invalid RISK_PRIMARY_MODEL: ${configuredPrimaryModelId}. Falling back to ${DEFAULT_PRIMARY_MODEL}. Expected one of: ${allowedIds}`,
     );
   }
 
-  if (!escalationModelId) {
-    throw new Error('Missing required env var: RISK_ESCALATION_MODEL');
-  }
-
-  if (!isGatewayModelId(escalationModelId)) {
-    throw new Error(
-      `Invalid RISK_ESCALATION_MODEL: ${escalationModelId}. Expected one of: ${REVIEW_MODEL_OPTIONS.map(option => option.id).join(', ')}`,
+  if (
+    configuredEscalationModelId &&
+    !isGatewayModelId(configuredEscalationModelId)
+  ) {
+    console.warn(
+      `Invalid RISK_ESCALATION_MODEL: ${configuredEscalationModelId}. Falling back to ${DEFAULT_ESCALATION_MODEL}. Expected one of: ${allowedIds}`,
     );
   }
 
