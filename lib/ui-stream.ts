@@ -3,6 +3,7 @@ import {
   createUIMessageStreamResponse,
 } from 'ai';
 import type { AnalysisUIMessage } from '@/lib/analysis-ui-message';
+import type { GitHubPreviewData } from '@/lib/github-comment';
 import type { ReviewProgressData } from '@/lib/review';
 import type { ChangeReviewResult } from '@/lib/types';
 
@@ -59,6 +60,14 @@ export function createProgressChunk(progress: ReviewProgressData) {
   return {
     type: 'data-review-progress' as const,
     data: progress,
+    transient: true,
+  };
+}
+
+export function createGitHubPreviewChunk(preview: GitHubPreviewData) {
+  return {
+    type: 'data-github-preview' as const,
+    data: preview,
     transient: true,
   };
 }

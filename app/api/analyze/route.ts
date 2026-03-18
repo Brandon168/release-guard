@@ -3,14 +3,25 @@ import {
   createUIMessageStreamResponse,
 } from 'ai';
 import type { AnalysisUIMessage } from '@/lib/analysis-ui-message';
+import { buildGitHubCommentBody } from '@/lib/github-comment';
 import { getFixtureById } from '@/lib/fixtures';
+import {
+  evaluatePullRequestRisk,
+  type GitHubChangedFile,
+} from '@/lib/github-risk';
 import {
   buildDeterministicFallbackReview,
   buildReviewReport,
   reviewChangeRisk,
 } from '@/lib/review';
+import { evaluateRiskPolicy } from '@/lib/risk-policy';
 import { normalizeChangeRequest, type ChangeRequest } from '@/lib/types';
-import { chunkText, createTextResponse, createProgressChunk } from '@/lib/ui-stream';
+import {
+  chunkText,
+  createGitHubPreviewChunk,
+  createProgressChunk,
+  createTextResponse,
+} from '@/lib/ui-stream';
 
 export const maxDuration = 30;
 
@@ -18,6 +29,14 @@ type AnalyzeRequestBody = {
   messages?: AnalysisUIMessage[];
   request?: Partial<ChangeRequest>;
   fixtureId?: string;
+  github?: {
+    title?: string;
+    body?: string;
+    baseRef?: string;
+    headRef?: string;
+    diff?: string;
+    files?: GitHubChangedFile[];
+  };
 };
 
 function extractLatestUserText(messages: AnalysisUIMessage[] = []) {
@@ -73,18 +92,61 @@ export async function POST(req: Request) {
     originalMessages,
     execute: async ({ writer }) => {
       let reviewResult;
+      let githubPreview;
 
       try {
-        reviewResult = await reviewChangeRisk(request, {
-          onProgress: progress => {
-            writer.write(createProgressChunk(progress));
-          },
-        });
+        if (body.github) {
+          const githubResult = await evaluatePullRequestRisk({
+            ...body.github,
+            overrides: request,
+          });
+          reviewResult = {
+            baselineAssessment: githubResult.baselineAssessment,
+            initialAssessment: githubResult.initialAssessment,
+            assessment: githubResult.assessment,
+            trail: githubResult.trail,
+            toolActivity: githubResult.toolActivity,
+          };
+          githubPreview = {
+            decision: githubResult.decision,
+            commentBody: githubResult.commentBody,
+          };
+        } else {
+          reviewResult = await reviewChangeRisk(request, {
+            onProgress: progress => {
+              writer.write(createProgressChunk(progress));
+            },
+          });
+          const decision = evaluateRiskPolicy({
+            assessment: reviewResult.assessment,
+            trail: reviewResult.trail,
+          });
+          githubPreview = {
+            decision,
+            commentBody: buildGitHubCommentBody({
+              decision,
+              assessment: reviewResult.assessment,
+              trail: reviewResult.trail,
+            }),
+          };
+        }
       } catch {
         reviewResult = buildDeterministicFallbackReview({
           request,
           fallbackReason: 'The model pipeline failed before a review could be completed.',
         });
+        const decision = evaluateRiskPolicy({
+          assessment: reviewResult.assessment,
+          trail: reviewResult.trail,
+        });
+        githubPreview = {
+          decision,
+          commentBody: buildGitHubCommentBody({
+            decision,
+            assessment: reviewResult.assessment,
+            trail: reviewResult.trail,
+          }),
+        };
       }
 
       const report = buildReviewReport(reviewResult);
@@ -94,6 +156,7 @@ export async function POST(req: Request) {
         data: reviewResult,
         transient: true,
       });
+      writer.write(createGitHubPreviewChunk(githubPreview));
       writer.write({ type: 'start' });
       writer.write({ type: 'start-step' });
       writer.write({ type: 'text-start', id: 'text-1' });

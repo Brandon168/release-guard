@@ -5,6 +5,7 @@ import { DefaultChatTransport, type UIMessage } from 'ai';
 import { startTransition, useState } from 'react';
 import type { AnalysisUIMessage } from '@/lib/analysis-ui-message';
 import { buildChangeRequestFromDraft } from '@/lib/artifact-ingestion';
+import type { GitHubPreviewData } from '@/lib/github-comment';
 import {
   demoScenarios,
   getDemoScenarioById,
@@ -15,7 +16,6 @@ import {
   DEFAULT_PRIMARY_MODEL,
   getModelLabel,
 } from '@/lib/model';
-import { evaluateRiskPolicy } from '@/lib/risk-policy';
 import type { ReviewProgressData } from '@/lib/review';
 import {
   artifactTypeLabels,
@@ -282,7 +282,7 @@ function getRecommendedActionDisplay(
   return {
     label: 'Need More Info',
     className: 'badge badge-unknown',
-    copy: 'The artifact needs sharper evidence before the gate should proceed.',
+    copy: 'The change needs sharper evidence before the gate should proceed.',
   };
 }
 
@@ -381,9 +381,12 @@ export function ChangeRiskWorkbench() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPipelineSetup, setShowPipelineSetup] = useState(false);
   const [showReviewComparison, setShowReviewComparison] = useState(false);
+  const [githubPreview, setGitHubPreview] = useState<GitHubPreviewData | null>(
+    null,
+  );
   const [activeResultsView, setActiveResultsView] = useState<
-    'workbench' | 'github'
-  >('workbench');
+    'summary' | 'trace' | 'github'
+  >('summary');
   const {
     messages,
     sendMessage,
@@ -404,6 +407,10 @@ export function ChangeRiskWorkbench() {
       if (dataPart.type === 'data-review-result') {
         setReviewResult(dataPart.data);
       }
+
+      if (dataPart.type === 'data-github-preview') {
+        setGitHubPreview(dataPart.data);
+      }
     },
   });
 
@@ -411,17 +418,36 @@ export function ChangeRiskWorkbench() {
   const activeScenario = activeScenarioId
     ? getDemoScenarioById(activeScenarioId)
     : undefined;
+  const hasReviewInput = Boolean(activeScenarioId || form.artifactText.trim());
+  const isAnalyzing = status === 'submitted' || status === 'streaming';
   const latestAssistantMessage = [...messages]
     .reverse()
     .find(message => message.role === 'assistant');
   const report = extractText(latestAssistantMessage);
-  const showAnalysisPanels =
-    status === 'submitted' ||
-    status === 'streaming' ||
-    Boolean(reviewResult) ||
-    Boolean(report) ||
-    Boolean(error);
+  const hasStartedAnalysis =
+    isAnalyzing || Boolean(reviewResult) || Boolean(report) || Boolean(error);
+  const showAnalysisPanels = hasStartedAnalysis;
   const statusClass = `report-status status-${status}`;
+  const workbenchEmptyTitle = isAnalyzing
+    ? 'Review in progress.'
+    : reviewProgress?.label ?? 'Waiting to start.';
+  const workbenchEmptyCopy = isAnalyzing
+    ? 'The review output will populate here.'
+    : reviewProgress?.detail ??
+      'Run a demo scenario or paste a change to see the verdict, action, and delivery output.';
+  const reportEmptyTitle = isAnalyzing
+    ? 'Review in progress.'
+    : 'Ready for a real change.';
+  const reportEmptyCopy = isAnalyzing
+    ? 'The report will appear when the current review step completes.'
+    : 'Run a demo scenario or paste a change to generate the shared review narrative.';
+  const githubEmptyTitle = isAnalyzing
+    ? 'Review in progress.'
+    : reviewProgress?.label ?? 'No PR comment yet.';
+  const githubEmptyCopy = isAnalyzing
+    ? 'The GitHub comment is generated after the artifact review finishes.'
+    : reviewProgress?.detail ??
+      'Run a review to generate the simulated PR comment preview.';
   const assessment = reviewResult?.assessment ?? null;
   const confidenceDisplay = assessment
     ? getConfidenceDisplay(assessment.confidence)
@@ -438,15 +464,30 @@ export function ChangeRiskWorkbench() {
   const reviewPathDisplay = reviewResult
     ? getReviewPathDisplay(reviewResult.trail)
     : null;
-  const decision = reviewResult
-    ? evaluateRiskPolicy({
-        assessment: reviewResult.assessment,
-        trail: reviewResult.trail,
-      })
-    : null;
+  const decision = githubPreview?.decision ?? null;
   const gateStatusDisplay = decision
     ? getGateStatusDisplay(decision.status)
     : null;
+
+  function buildGitHubRequestBody() {
+    const title = submitRequest.title || 'Release Guard preview';
+    const bodySections = [
+      submitRequest.summary ? `Summary: ${submitRequest.summary}` : '',
+      submitRequest.services.length
+        ? `Services: ${submitRequest.services.join(', ')}`
+        : '',
+      submitRequest.environment !== 'unknown'
+        ? `Environment: ${submitRequest.environment}`
+        : '',
+    ].filter(Boolean);
+
+    return {
+      title,
+      body: bodySections.join('\n'),
+      diff: submitRequest.artifactText,
+      overrides: submitRequest,
+    };
+  }
 
   function updateField<K extends keyof ChangeFormState>(
     key: K,
@@ -466,6 +507,7 @@ export function ChangeRiskWorkbench() {
 
     clearError();
     setReviewResult(null);
+    setGitHubPreview(null);
     setReviewProgress(null);
     setShowReviewComparison(false);
     setMessages([]);
@@ -479,9 +521,10 @@ export function ChangeRiskWorkbench() {
   function resetWorkspace() {
     clearError();
     setReviewResult(null);
+    setGitHubPreview(null);
     setReviewProgress(null);
     setShowReviewComparison(false);
-    setActiveResultsView('workbench');
+    setActiveResultsView('summary');
     setMessages([]);
     startTransition(() => {
       setActiveScenarioId(null);
@@ -494,9 +537,10 @@ export function ChangeRiskWorkbench() {
     event.preventDefault();
     clearError();
     setReviewResult(null);
+    setGitHubPreview(null);
     setReviewProgress(null);
     setShowReviewComparison(false);
-    setActiveResultsView('workbench');
+    setActiveResultsView('summary');
     setMessages([]);
 
     await sendMessage({
@@ -504,9 +548,10 @@ export function ChangeRiskWorkbench() {
         submitRequest.title ||
         submitRequest.summary ||
         submitRequest.artifactText ||
-        'Assess the release risk for this artifact.',
+        'Assess the release risk for this change.',
     }, {
       body: {
+        github: buildGitHubRequestBody(),
         request: submitRequest,
       },
     });
@@ -514,78 +559,85 @@ export function ChangeRiskWorkbench() {
 
   return (
     <main className="shell">
-      <section className="hero-band">
-        <div className="hero hero-primary hero-full">
-          <span className="eyebrow">Sr Solutions Architect Take-Home</span>
-          <div>
-            <h1>Release Guard</h1>
-            <p>
-              Paste a proposed change artifact to run a cheap first-pass review,
-              auto-escalate when the judgment is uncertain, and fall back safely
-              when the model path breaks.
-            </p>
-          </div>
-          <div className="hero-inline-meta">
-            <span className="source-pill">GitHub-first workflow</span>
-            <span className="hero-inline-copy">
-              Use the GitHub preview tab to show the PR automation experience
-              without leaving the workbench.
-            </span>
-          </div>
-        </div>
-      </section>
-
       <section className="workspace">
         <div className="panel">
           <div className="panel-inner">
-            <h2>Change Artifact</h2>
-            <p className="panel-subtitle">
-              One primary input, four curated demos, and an optional refinement
-              panel when you want to add explicit rollout or rollback detail.
-            </p>
-
-            <div className="examples-header">
-              <h3>Demo Scenarios</h3>
-              <span className="examples-caption">4 curated examples</span>
-            </div>
-
-            <div className="example-grid">
-              {demoScenarios.map(scenario => (
-                <button
-                  key={scenario.id}
-                  type="button"
-                  className={`example-card ${
-                    activeScenarioId === scenario.id ? 'active' : ''
-                  }`}
-                  onClick={() => applyScenario(scenario.id)}
-                >
-                  <div className="sample-meta-row">
-                    <span className="source-pill">{scenario.sourceKind}</span>
-                    <span
-                      className={getRiskBadgeClass(
-                        scenario.fixture.expected.riskLevel,
-                      )}
-                    >
-                      {scenario.fixture.expected.riskLevel}
-                    </span>
-                  </div>
-                  <span className="sample-title">{scenario.title}</span>
-                  <span className="sample-description">{scenario.subtitle}</span>
-                  <span className="sample-source">{scenario.sourceLabel}</span>
-                </button>
-              ))}
-            </div>
-
-            {activeScenario ? (
-              <div className="source-note">
-                Loaded {activeScenario.sourceKind}: {activeScenario.sourceLabel}
-              </div>
-            ) : null}
-
             <form className="form" onSubmit={handleSubmit}>
+              <div className="form-actions-bar">
+                <div>
+                  <h2>Change Review</h2>
+                  <p className="panel-subtitle">
+                    Pick a demo PR or paste a change, then inspect the review.
+                  </p>
+                </div>
+                <div className="actions actions-top">
+                  <button
+                    className="action-button"
+                    type="submit"
+                    disabled={!hasReviewInput || isAnalyzing}
+                  >
+                    {isAnalyzing ? 'Analyzing...' : 'Analyze Change'}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={resetWorkspace}
+                  >
+                    Reset
+                  </button>
+                  {isAnalyzing && (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => stop()}
+                    >
+                      Stop Stream
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="examples-header">
+                <h3>Demo Scenarios</h3>
+                <span className="examples-caption">4 curated examples</span>
+              </div>
+
+              <div className="example-grid">
+                {demoScenarios.map(scenario => (
+                  <button
+                    key={scenario.id}
+                    type="button"
+                    className={`example-card ${
+                      activeScenarioId === scenario.id ? 'active' : ''
+                    }`}
+                    onClick={() => applyScenario(scenario.id)}
+                  >
+                    <div className="sample-meta-row">
+                      <span className="source-pill">{scenario.sourceKind}</span>
+                      <span
+                        className={getRiskBadgeClass(
+                          scenario.fixture.expected.riskLevel,
+                        )}
+                      >
+                        {scenario.fixture.expected.riskLevel}
+                      </span>
+                    </div>
+                    <span className="sample-title">{scenario.title}</span>
+                    <span className="sample-description">{scenario.subtitle}</span>
+                    <span className="sample-source">{scenario.sourceLabel}</span>
+                  </button>
+                ))}
+              </div>
+
+              {activeScenario ? (
+                <div className="source-note">
+                  Loaded {activeScenario.sourceKind}: {activeScenario.sourceLabel}
+                </div>
+              ) : null}
+
               <div className="field-grid">
                 <div className="field">
-                  <label htmlFor="artifact-type">Artifact type</label>
+                  <label htmlFor="artifact-type">Change source</label>
                   <select
                     id="artifact-type"
                     value={form.artifactType}
@@ -616,13 +668,12 @@ export function ChangeRiskWorkbench() {
               </div>
 
               <span className="helper">
-                Low-cost first pass, automatic escalation on uncertainty, and a
-                deterministic fallback underneath both the workbench and the PR
-                gate.
+                Cheap first pass, escalation only when needed, and a shared
+                fallback path.
               </span>
 
               <div className="field">
-                <label htmlFor="artifact-text">Artifact</label>
+                <label htmlFor="artifact-text">Change details</label>
                 <textarea
                   id="artifact-text"
                   rows={16}
@@ -634,8 +685,7 @@ export function ChangeRiskWorkbench() {
                   placeholder="Paste a PR diff, Terraform plan, change ticket, release note, or config change."
                 />
                 <span className="helper">
-                  The model is expected to judge the risk directly. The
-                  deterministic engine only acts as a guardrail and fallback.
+                  Paste the artifact you want the review engine to judge.
                 </span>
               </div>
 
@@ -804,34 +854,6 @@ export function ChangeRiskWorkbench() {
                 </div>
               ) : null}
 
-              <div className="actions">
-                <button
-                  className="action-button"
-                  type="submit"
-                  disabled={status === 'submitted' || status === 'streaming'}
-                >
-                  {status === 'submitted' || status === 'streaming'
-                    ? 'Analyzing...'
-                    : 'Analyze Change'}
-                </button>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={resetWorkspace}
-                >
-                  Reset
-                </button>
-                {(status === 'submitted' || status === 'streaming') && (
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => stop()}
-                  >
-                    Stop Stream
-                  </button>
-                )}
-              </div>
-
               <button
                 type="button"
                 className="disclosure-button"
@@ -904,15 +926,49 @@ export function ChangeRiskWorkbench() {
         <div className="right-column">
           {showAnalysisPanels ? (
             <>
+              {isAnalyzing ? (
+                <div className="active-review-banner" aria-live="polite">
+                  <div className="active-review-banner-row">
+                    <div className="active-review-copy">
+                      <div className="signal-label">Active Review</div>
+                      <h2>Review in progress.</h2>
+                      <p>Analyzing change. This can take a few seconds.</p>
+                    </div>
+
+                    <div className="active-review-stage">
+                      <span className="active-review-dot" aria-hidden="true" />
+                      <div>
+                        <span className={getProgressPillClass(reviewProgress)}>
+                          {reviewProgress?.label ?? 'Starting'}
+                        </span>
+                        <p>
+                          {reviewProgress?.detail ??
+                            'Grading the change artifact before generating the delivery output.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="results-view-toggle">
                 <button
                   type="button"
                   className={`results-view-button ${
-                    activeResultsView === 'workbench' ? 'active' : ''
+                    activeResultsView === 'summary' ? 'active' : ''
                   }`}
-                  onClick={() => setActiveResultsView('workbench')}
+                  onClick={() => setActiveResultsView('summary')}
                 >
-                  Workbench View
+                  Summary
+                </button>
+                <button
+                  type="button"
+                  className={`results-view-button ${
+                    activeResultsView === 'trace' ? 'active' : ''
+                  }`}
+                  onClick={() => setActiveResultsView('trace')}
+                >
+                  Trace
                 </button>
                 <button
                   type="button"
@@ -926,217 +982,195 @@ export function ChangeRiskWorkbench() {
               </div>
 
               <div className="results-view-stage">
-                <div
-                  className={`results-view-pane ${
-                    activeResultsView === 'workbench'
-                      ? 'results-view-pane-active'
-                      : 'results-view-pane-hidden'
-                  }`}
-                  aria-hidden={activeResultsView !== 'workbench'}
-                  inert={activeResultsView !== 'workbench'}
-                >
-                  <div className="panel">
-                    <div className="panel-inner">
-                      <div className="section-header">
-                        <div>
-                          <h2>Risk Grade</h2>
-                          <p className="panel-subtitle">
-                            This is the model-generated judgment. The deterministic
-                            baseline is still available below as a guardrail, but it
-                            is no longer the primary visible grade.
-                          </p>
-                        </div>
-                        <span
-                          className={
-                            assessment
-                              ? getRiskBadgeClass(assessment.riskLevel)
-                              : 'badge badge-unknown'
-                          }
-                        >
-                          {assessment?.riskLevel ?? 'pending'}
-                        </span>
-                      </div>
-
-                      {assessment ? (
-                        <>
-                          <div className="preview-block">
-                            <div className="signal-label">Executive Summary</div>
-                            <div className="signal-copy">
-                              {assessment.executiveSummary}
-                            </div>
-                          </div>
-
-                          <div className="signal-grid mode-grid-inline">
-                            <div className="signal-card">
-                              <div className="signal-label">Confidence</div>
-                              <span className={confidenceDisplay?.className}>
-                                {confidenceDisplay?.label}
-                              </span>
-                              <div className="signal-copy">
-                                {confidenceDisplay?.copy}
-                              </div>
-                            </div>
-
-                            <div className="signal-card">
-                              <div className="signal-label">Expected Scope</div>
-                              <span className={expectedScopeDisplay?.className}>
-                                {expectedScopeDisplay?.label}
-                              </span>
-                              <div className="signal-copy">
-                                {expectedScopeDisplay?.copy}
-                              </div>
-                            </div>
-
-                            <div className="signal-card">
-                              <div className="signal-label">Missing Info</div>
-                              <span className={missingInfoDisplay?.className}>
-                                {missingInfoDisplay?.label}
-                              </span>
-                              <div className="signal-copy">
-                                {missingInfoDisplay?.copy}
-                              </div>
-                            </div>
-
-                            <div className="signal-card">
-                              <div className="signal-label">Recommended Action</div>
-                              <span className={actionDisplay?.className}>
-                                {actionDisplay?.label}
-                              </span>
-                              <div className="signal-copy">
-                                {actionDisplay?.copy}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="preview-columns">
-                            <div className="preview-block">
-                              <div className="signal-label">Why This Grade</div>
-                              <ul className="list">
-                                {assessment.reasoning.map(reason => (
-                                  <li key={reason}>{reason}</li>
-                                ))}
-                              </ul>
-                            </div>
-
-                            <div className="preview-block">
-                              <div className="signal-label">Questions Before Approval</div>
-                              <ul className="list">
-                                {assessment.missingInfo.length > 0 ? (
-                                  assessment.missingInfo.map(item => (
-                                    <li key={item}>{item}</li>
-                                  ))
-                                ) : (
-                                  <li>No major information gaps were flagged.</li>
-                                )}
-                              </ul>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="report-empty">
-                          <h3>{reviewProgress?.label ?? 'Waiting to start.'}</h3>
-                          <p>
-                            {reviewProgress?.detail ??
-                              'Submit an artifact to watch the primary model run, escalate when needed, and return a final judgment.'}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="panel report-panel">
-                    <div className="panel-inner">
-                      <div className="report-header">
-                        <div>
-                          <h2>Final Report</h2>
-                          <p className="panel-subtitle">
-                            A readable narrative generated from the structured
-                            review. It supports the grade above instead of replacing
-                            it.
-                          </p>
-                        </div>
-                        <span className={statusClass}>{status}</span>
-                      </div>
-
-                      {error ? (
-                        <div className="error-banner">
-                          Something went wrong while requesting the analysis. The
-                          workbench will fall back when the server can, but a client
-                          transport error can still interrupt the run.
-                        </div>
-                      ) : null}
-
-                      {reviewProgress ? (
-                        <div className="source-note">
-                          <span className={getProgressPillClass(reviewProgress)}>
-                            {reviewProgress.label}
-                          </span>{' '}
-                          {reviewProgress.detail}
-                        </div>
-                      ) : null}
-
-                      <div className="report-frame">
-                        {report ? (
-                          <pre className="report-copy">{report}</pre>
-                        ) : (
-                          <div className="report-empty">
-                            <h3>Ready for a real artifact.</h3>
-                            <p>
-                              Submit one change artifact and the workbench will show
-                              the review path, the final AI judgment, and the
-                              deterministic backup signal side by side.
+                {activeResultsView === 'summary' ? (
+                  <div className="results-view-pane">
+                    <div className="panel">
+                      <div className="panel-inner">
+                        <div className="section-header">
+                          <div>
+                            <h2>Risk Grade</h2>
+                            <p className="panel-subtitle">
+                              The primary judgment, the action to take, and the
+                              supporting rationale.
                             </p>
+                          </div>
+                          <span
+                            className={
+                              assessment
+                                ? getRiskBadgeClass(assessment.riskLevel)
+                                : 'badge badge-unknown'
+                            }
+                          >
+                            {assessment?.riskLevel ?? 'pending'}
+                          </span>
+                        </div>
+
+                        {assessment ? (
+                          <>
+                            <div className="preview-block">
+                              <div className="signal-label">Executive Summary</div>
+                              <div className="signal-copy">
+                                {assessment.executiveSummary}
+                              </div>
+                            </div>
+
+                            <div className="signal-grid summary-kpi-grid mode-grid-inline">
+                              <div className="signal-card">
+                                <div className="signal-label">Confidence</div>
+                                <span className={confidenceDisplay?.className}>
+                                  {confidenceDisplay?.label}
+                                </span>
+                                <div className="signal-copy">
+                                  {confidenceDisplay?.copy}
+                                </div>
+                              </div>
+
+                              <div className="signal-card">
+                                <div className="signal-label">Expected Scope</div>
+                                <span className={expectedScopeDisplay?.className}>
+                                  {expectedScopeDisplay?.label}
+                                </span>
+                                <div className="signal-copy">
+                                  {expectedScopeDisplay?.copy}
+                                </div>
+                              </div>
+
+                              <div className="signal-card">
+                                <div className="signal-label">Missing Info</div>
+                                <span className={missingInfoDisplay?.className}>
+                                  {missingInfoDisplay?.label}
+                                </span>
+                                <div className="signal-copy">
+                                  {missingInfoDisplay?.copy}
+                                </div>
+                              </div>
+
+                              <div className="signal-card">
+                                <div className="signal-label">Recommended Action</div>
+                                <span className={actionDisplay?.className}>
+                                  {actionDisplay?.label}
+                                </span>
+                                <div className="signal-copy">
+                                  {actionDisplay?.copy}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="preview-columns summary-context-grid">
+                              <div className="preview-block">
+                                <div className="signal-label">Why This Grade</div>
+                                <ul className="list">
+                                  {assessment.reasoning.map(reason => (
+                                    <li key={reason}>{reason}</li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <div className="preview-block">
+                                <div className="signal-label">
+                                  Questions Before Approval
+                                </div>
+                                <ul className="list">
+                                  {assessment.missingInfo.length > 0 ? (
+                                    assessment.missingInfo.map(item => (
+                                      <li key={item}>{item}</li>
+                                    ))
+                                  ) : (
+                                    <li>No major information gaps were flagged.</li>
+                                  )}
+                                </ul>
+                              </div>
+                            </div>
+
+                            <div className="delivery-panel">
+                              <div className="section-header">
+                                <div>
+                                  <h3>Delivery Output</h3>
+                                  <p className="panel-subtitle">
+                                    Shared review output for the PR gate and the
+                                    operator-facing narrative.
+                                  </p>
+                                </div>
+                                <span
+                                  className={
+                                    gateStatusDisplay?.className ??
+                                    'mode-pill mode-pill-quiet'
+                                  }
+                                >
+                                  {gateStatusDisplay?.label ?? 'Pending'}
+                                </span>
+                              </div>
+
+                              {error ? (
+                                <div className="error-banner">
+                                  Something went wrong while requesting the
+                                  analysis. The server can still fall back, but a
+                                  client transport error can interrupt the run.
+                                </div>
+                              ) : null}
+
+                              {reviewProgress ? (
+                                <div className="source-note">
+                                  <span
+                                    className={getProgressPillClass(reviewProgress)}
+                                  >
+                                    {reviewProgress.label}
+                                  </span>{' '}
+                                  {reviewProgress.detail}
+                                </div>
+                              ) : null}
+
+                              <div className="report-header report-header-inline">
+                                <div>
+                                  <div className="signal-label">Final Report</div>
+                                </div>
+                                <span className={statusClass}>{status}</span>
+                              </div>
+
+                              <div className="report-frame report-frame-compact">
+                                {report ? (
+                                  <pre className="report-copy">{report}</pre>
+                                ) : (
+                                  <div
+                                    className={`report-empty report-empty-compact${
+                                      isAnalyzing ? ' report-empty-passive' : ''
+                                    }`}
+                                  >
+                                    <h3>{reportEmptyTitle}</h3>
+                                    <p>{reportEmptyCopy}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div
+                            className={`report-empty${
+                              isAnalyzing ? ' report-empty-passive' : ''
+                            }`}
+                          >
+                            <h3>{workbenchEmptyTitle}</h3>
+                            <p>{workbenchEmptyCopy}</p>
                           </div>
                         )}
                       </div>
-
-                      {reviewResult?.toolActivity.length ? (
-                        <div className="tool-panel">
-                          <div className="section-header">
-                            <div>
-                              <h3>Tool Activity</h3>
-                              <p className="panel-subtitle">
-                                Lightweight traces from checklist and runbook
-                                lookups.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="tool-grid">
-                            {reviewResult.toolActivity.map((activity, index) => (
-                              <div
-                                key={`${activity.stage}-${activity.toolName}-${index}`}
-                                className="tool-card"
-                              >
-                                <div className="sample-title-row">
-                                  <span className="sample-title">
-                                    {activity.toolName}
-                                  </span>
-                                  <span className="source-pill">
-                                    {renderToolStage(activity.stage)}
-                                  </span>
-                                </div>
-                                <div className="tool-copy">{activity.summary}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
+                ) : null}
 
-                  <div className="analysis-secondary-grid">
+                {activeResultsView === 'trace' ? (
+                  <div className="results-view-pane trace-pane">
                     <div className="panel">
                       <div className="panel-inner">
                         <h3>Review Trail</h3>
                         <p className="panel-subtitle">
-                          How the run moved through the cheap-first path, escalation,
-                          and fallback behavior.
+                          How the run moved through the cheap-first path,
+                          escalation, and fallback.
                         </p>
 
                         {reviewResult ? (
                           <>
-                            <div className="mode-grid">
+                            <div className="mode-grid trace-mode-grid">
                               <div className="mode-card">
                                 <div className="signal-label">Path</div>
                                 <span className={reviewPathDisplay?.className}>
@@ -1153,7 +1187,8 @@ export function ChangeRiskWorkbench() {
                                   {getModelLabel(reviewResult.trail.primaryModelId)}
                                 </span>
                                 <div className="signal-copy">
-                                  First pass verdict: {formatVerdict(reviewResult.initialAssessment)}
+                                  First pass verdict:{' '}
+                                  {formatVerdict(reviewResult.initialAssessment)}
                                 </div>
                               </div>
 
@@ -1161,7 +1196,9 @@ export function ChangeRiskWorkbench() {
                                 <div className="signal-label">Escalation</div>
                                 <span className="mode-pill mode-pill-quiet">
                                   {reviewResult.trail.escalationTriggered
-                                    ? getModelLabel(reviewResult.trail.escalationModelId)
+                                    ? getModelLabel(
+                                        reviewResult.trail.escalationModelId,
+                                      )
                                     : 'Not needed'}
                                 </span>
                                 <div className="signal-copy">
@@ -1177,7 +1214,8 @@ export function ChangeRiskWorkbench() {
                                   {getModelLabel(reviewResult.trail.finalModelId)}
                                 </span>
                                 <div className="signal-copy">
-                                  Final verdict: {formatVerdict(reviewResult.assessment)}
+                                  Final verdict:{' '}
+                                  {formatVerdict(reviewResult.assessment)}
                                 </div>
                               </div>
                             </div>
@@ -1198,7 +1236,7 @@ export function ChangeRiskWorkbench() {
                                       ? 'Hide review comparison'
                                       : 'Compare first pass and escalated review'}
                                   </span>
-                                  <span className="disclosure-meta">Model diff</span>
+                                  <span className="disclosure-meta">Review delta</span>
                                 </button>
 
                                 {showReviewComparison ? (
@@ -1206,7 +1244,9 @@ export function ChangeRiskWorkbench() {
                                     <div className="comparison-card">
                                       <div className="signal-label">First Pass</div>
                                       <span className="mode-pill mode-pill-quiet">
-                                        {getModelLabel(reviewResult.trail.primaryModelId)}
+                                        {getModelLabel(
+                                          reviewResult.trail.primaryModelId,
+                                        )}
                                       </span>
                                       <div className="comparison-metric">
                                         {formatVerdict(reviewResult.initialAssessment)}
@@ -1222,7 +1262,9 @@ export function ChangeRiskWorkbench() {
                                     <div className="comparison-card">
                                       <div className="signal-label">Final Review</div>
                                       <span className="mode-pill mode-pill-active">
-                                        {getModelLabel(reviewResult.trail.finalModelId)}
+                                        {getModelLabel(
+                                          reviewResult.trail.finalModelId,
+                                        )}
                                       </span>
                                       <div className="comparison-metric">
                                         {formatVerdict(reviewResult.assessment)}
@@ -1240,8 +1282,8 @@ export function ChangeRiskWorkbench() {
                           <div className="report-empty">
                             <h3>Trail will appear after analysis.</h3>
                             <p>
-                              The app surfaces the same review path that GitHub
-                              Actions uses for automated PR gating.
+                              Run a review to inspect the same path used for the
+                              gate decision.
                             </p>
                           </div>
                         )}
@@ -1254,9 +1296,8 @@ export function ChangeRiskWorkbench() {
                           <div>
                             <h3>Deterministic Guardrail</h3>
                             <p className="panel-subtitle">
-                              The fallback and eval layer. Useful for provenance and
-                              reliability, but intentionally secondary to the AI
-                              judgment above.
+                              Provenance and fallback context behind the primary
+                              AI judgment.
                             </p>
                           </div>
                         </div>
@@ -1275,7 +1316,11 @@ export function ChangeRiskWorkbench() {
                                     {reviewResult.baselineAssessment.riskLevel}
                                   </span>
                                   <span className="chip chip-neutral">
-                                    {reviewResult.baselineAssessment.evidenceStrength} evidence
+                                    {
+                                      reviewResult.baselineAssessment
+                                        .evidenceStrength
+                                    }{' '}
+                                    evidence
                                   </span>
                                 </div>
                               </div>
@@ -1335,132 +1380,100 @@ export function ChangeRiskWorkbench() {
                           <div className="report-empty">
                             <h3>No guardrail output yet.</h3>
                             <p>
-                              Run an artifact to compare the AI verdict to the
+                              Run a change review to compare the AI verdict to the
                               deterministic safety net.
                             </p>
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
-                </div>
-                <div
-                  className={`results-view-pane ${
-                    activeResultsView === 'github'
-                      ? 'results-view-pane-active'
-                      : 'results-view-pane-hidden'
-                  }`}
-                  aria-hidden={activeResultsView !== 'github'}
-                  inert={activeResultsView !== 'github'}
-                >
-                  <div className="panel github-preview-panel">
-                    <div className="panel-inner">
-                      <div className="section-header">
-                        <div>
-                          <h2>GitHub Preview</h2>
-                          <p className="panel-subtitle">
-                            A simulated PR comment so you can demo the automation
-                            workflow without leaving the app.
-                          </p>
+
+                    {reviewResult?.toolActivity.length ? (
+                      <div className="panel">
+                        <div className="panel-inner">
+                          <div className="section-header">
+                            <div>
+                              <h3>Tool Activity</h3>
+                              <p className="panel-subtitle">
+                                Checklist and runbook lookups used during the
+                                review.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="tool-grid">
+                            {reviewResult.toolActivity.map((activity, index) => (
+                              <div
+                                key={`${activity.stage}-${activity.toolName}-${index}`}
+                                className="tool-card"
+                              >
+                                <div className="sample-title-row">
+                                  <span className="sample-title">
+                                    {activity.toolName}
+                                  </span>
+                                  <span className="source-pill">
+                                    {renderToolStage(activity.stage)}
+                                  </span>
+                                </div>
+                                <div className="tool-copy">{activity.summary}</div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        {gateStatusDisplay ? (
-                          <span className={gateStatusDisplay.className}>
-                            {gateStatusDisplay.label}
-                          </span>
-                        ) : null}
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                      {reviewResult && decision ? (
-                        <div className="github-comment-shell">
-                          <div className="github-comment-header">
-                            <div className="github-avatar">CR</div>
-                            <div className="github-comment-meta">
-                              <strong>release-guard[bot]</strong> commented
-                              just now
+                {activeResultsView === 'github' ? (
+                  <div className="results-view-pane">
+                    <div className="panel github-preview-panel">
+                      <div className="panel-inner">
+                        <div className="section-header">
+                          <div>
+                            <h2>GitHub Preview</h2>
+                            <p className="panel-subtitle">
+                              The exact comment payload produced after the shared
+                              review engine grades the artifact.
+                            </p>
+                          </div>
+                          {gateStatusDisplay ? (
+                            <span className={gateStatusDisplay.className}>
+                              {gateStatusDisplay.label}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {reviewResult && decision && githubPreview ? (
+                          <div className="github-comment-shell">
+                            <div className="github-comment-header">
+                              <div className="github-avatar">CR</div>
+                              <div className="github-comment-meta">
+                                <strong>release-guard[bot]</strong> commented
+                                just now
+                              </div>
+                            </div>
+
+                            <div className="github-comment-body">
+                              <pre className="report-copy">
+                                {githubPreview.commentBody}
+                              </pre>
                             </div>
                           </div>
-
-                          <div className="github-comment-body">
-                            <h3>Release Guard</h3>
-
-                            <div className="github-comment-section">
-                              <ul className="github-bullet-list">
-                                <li>Status: {decision.status}</li>
-                                <li>Risk grade: {reviewResult.assessment.riskLevel}</li>
-                                <li>Confidence: {reviewResult.assessment.confidence}</li>
-                                <li>Expected scope: {reviewResult.assessment.expectedScope}</li>
-                                <li>
-                                  Recommended action:{' '}
-                                  {reviewResult.assessment.recommendedAction}
-                                </li>
-                              </ul>
-                            </div>
-
-                            <div className="github-comment-section">
-                              <h4>Review Path</h4>
-                              <ul className="github-bullet-list">
-                                <li>Path: {reviewResult.trail.reviewPath}</li>
-                                <li>
-                                  Primary model:{' '}
-                                  {getModelLabel(reviewResult.trail.primaryModelId)}
-                                </li>
-                                <li>
-                                  Escalation:{' '}
-                                  {reviewResult.trail.escalationTriggered
-                                    ? `${getModelLabel(reviewResult.trail.escalationModelId)} because ${reviewResult.trail.escalationReason}`
-                                    : 'not needed'}
-                                </li>
-                                <li>
-                                  Final source:{' '}
-                                  {getModelLabel(reviewResult.trail.finalModelId)}
-                                </li>
-                              </ul>
-                            </div>
-
-                            <div className="github-comment-section">
-                              <h4>Gate Reasons</h4>
-                              <ul className="github-bullet-list">
-                                {decision.reasons.length > 0 ? (
-                                  decision.reasons.map(reason => (
-                                    <li key={reason}>{reason}</li>
-                                  ))
-                                ) : (
-                                  <li>No policy issues detected.</li>
-                                )}
-                              </ul>
-                            </div>
-
-                            <div className="github-comment-section">
-                              <h4>Missing Evidence</h4>
-                              <ul className="github-bullet-list">
-                                {reviewResult.assessment.missingInfo.length > 0 ? (
-                                  reviewResult.assessment.missingInfo.map(item => (
-                                    <li key={item}>{item}</li>
-                                  ))
-                                ) : (
-                                  <li>None.</li>
-                                )}
-                              </ul>
-                            </div>
-
-                            <div className="github-comment-section">
-                              <h4>Executive Summary</h4>
-                              <p>{reviewResult.assessment.executiveSummary}</p>
-                            </div>
+                        ) : (
+                          <div
+                            className={`report-empty${
+                              isAnalyzing ? ' report-empty-passive' : ''
+                            }`}
+                          >
+                            <h3>{githubEmptyTitle}</h3>
+                            <p>{githubEmptyCopy}</p>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="report-empty">
-                          <h3>{reviewProgress?.label ?? 'No PR comment yet.'}</h3>
-                          <p>
-                            {reviewProgress?.detail ??
-                              'Run an artifact to generate the simulated PR comment preview.'}
-                          </p>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             </>
           ) : (
@@ -1470,8 +1483,8 @@ export function ChangeRiskWorkbench() {
                   <div>
                     <h2>Results Workspace</h2>
                     <p className="panel-subtitle">
-                      The right side stays quiet until you explicitly run an
-                      analysis.
+                      The summary, trace, and GitHub preview appear after you run
+                      an analysis.
                     </p>
                   </div>
                   <span className="mode-pill mode-pill-quiet">Idle</span>
@@ -1481,9 +1494,9 @@ export function ChangeRiskWorkbench() {
                   <div>
                     <h3>Start from the left.</h3>
                     <p>
-                      Choose a demo scenario or paste a real artifact, then hit
-                      Analyze to see the review path, final grade, and fallback
-                      guardrail.
+                      Choose a demo scenario or paste a real change, then hit
+                      Analyze to see the verdict, the delivery output, and the
+                      supporting trace.
                     </p>
                   </div>
 

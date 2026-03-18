@@ -1,4 +1,5 @@
 import { buildChangeRequestFromDraft } from '@/lib/artifact-ingestion';
+import { buildGitHubCommentBody } from '@/lib/github-comment';
 import {
   isNonRuntimePath,
   loadRepoRiskPolicy,
@@ -44,6 +45,7 @@ export type PullRequestRiskResult = {
   trail: ChangeReviewResult['trail'];
   toolActivity: ChangeReviewResult['toolActivity'];
   decision: RiskDecision;
+  commentBody: string;
 };
 
 function renderFileSummary(files: GitHubChangedFile[]) {
@@ -229,6 +231,30 @@ export async function evaluatePullRequestRisk(
           `Skipped operational review because only repo-defined non-runtime files changed: ${changedFiles.join(', ')}.`,
         ],
       },
+      commentBody: buildGitHubCommentBody({
+        decision: {
+          ...decision,
+          summary: 'PR is within the configured risk policy.',
+          reasons: [
+            `Skipped operational review because only repo-defined non-runtime files changed: ${changedFiles.join(', ')}.`,
+          ],
+        },
+        assessment,
+        trail: {
+          reviewPath: 'policy-exempt',
+          gatewayAvailable: false,
+          primaryModelId: null,
+          escalationModelId: null,
+          finalModelId: null,
+          escalationTriggered: false,
+          escalationCompleted: false,
+          escalationReason: null,
+          fallbackUsed: false,
+          fallbackReason: repoPolicy.sourceFile
+            ? `Matched non-runtime PR exemption rules from ${repoPolicy.sourceFile}.`
+            : 'Matched non-runtime PR exemption rules from repo policy.',
+        },
+      }),
     };
   }
 
@@ -248,5 +274,10 @@ export async function evaluatePullRequestRisk(
     trail: review.trail,
     toolActivity: review.toolActivity,
     decision,
+    commentBody: buildGitHubCommentBody({
+      decision,
+      assessment: review.assessment,
+      trail: review.trail,
+    }),
   };
 }

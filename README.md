@@ -1,146 +1,101 @@
 # Release Guard
 
-Release Guard is a compact, production-minded AI app for analyzing proposed software and infrastructure changes. It takes a proposed change, streams back a defensible assessment, and treats missing evidence as a first-class outcome instead of a failure.
+Release Guard is a Next.js demo for assessing release risk from change artifacts such as PR diffs, Terraform plans, change tickets, release notes, and config changes.
 
-## Minimal Architecture
+The app is built around a cheap-first review path:
 
-- `Next.js App Router` serves a single analyst workbench page and one streaming API route.
-- The client uses `useChat` from `@ai-sdk/react` with `DefaultChatTransport` to stream results from `/api/analyze`.
-- A shared deterministic risk engine scores the request first. It produces a preview, grounds the prompt, powers the eval harness, and provides a no-model fallback.
-- An artifact ingestion layer turns pasted change artifacts into the same shared request shape used by the deterministic engine.
-- The API route uses `streamText` from `ai` with explicit `AI Gateway` isolation and the current default model `openai/gpt-5-mini`.
-- Two simple AI tools are available during generation: `getChangeChecklist(changeType)` and `lookupRunbook(systemName)`.
-- If Gateway credentials are unavailable locally, the route streams a deterministic fallback report instead of failing.
-- An optional repo grounding pack in `.changeRisk/` gives the model repo-specific taxonomy, policy, and examples.
-- No database, auth, or persistence layer is included. The app is intentionally single-session and fixture-driven.
+- A deterministic heuristic engine parses and scores the artifact first.
+- A low-cost model performs the first structured review.
+- The review auto-escalates to a stronger model when the first pass is uncertain.
+- If model access is unavailable or the model path fails, the deterministic baseline becomes the final fallback.
+
+The same review pipeline powers both the interactive workbench and the GitHub-oriented PR risk endpoint.
+
+## What The App Does
+
+- Single-page analyst workbench with one primary artifact input and an optional refinement panel.
+- Four curated demo scenarios in the UI.
+- Final structured review with:
+  - risk level
+  - confidence
+  - expected scope
+  - missing information
+  - rollback considerations
+  - recommended action
+  - executive summary
+- Visible review trail showing whether the run stayed on the cheap path, escalated, fell back, or was policy-exempt.
+- Lightweight tool calls for change checklists and service runbooks.
+- Simulated GitHub PR comment preview in the UI.
+- JSON API for GitHub or CI-based PR gating.
+- Repo-local grounding pack in `.changeRisk/` for taxonomy, examples, and non-runtime path policy.
+
+## Current Architecture
+
+- `app/page.tsx` renders a single `ChangeRiskWorkbench`.
+- `components/change-risk-workbench.tsx` owns the artifact form, demo scenarios, review-path UI, deterministic guardrail panel, and GitHub preview tab.
+- `app/api/analyze/route.ts` accepts a normalized change request and streams back the final narrative report plus structured review data.
+- `lib/review.ts` orchestrates the review pipeline:
+  - deterministic baseline
+  - primary model review
+  - escalation review when needed
+  - deterministic fallback on failure
+- `lib/model.ts` configures the primary and escalation AI Gateway models.
+- `lib/github-risk.ts` reuses the same review logic for PR-style payloads and applies gate policy.
+- `app/api/github/risk/route.ts` exposes the PR risk JSON endpoint.
+- `lib/repo-grounding.ts` and `lib/repo-risk-policy.ts` load repo-local calibration and exemption rules from `.changeRisk/`.
 
 ## Repo Structure
 
 ```text
 app/
-  api/analyze/route.ts      Streaming analysis endpoint
-  globals.css               Visual system and layout
-  layout.tsx                Fonts and metadata
-  page.tsx                  Entry page
+  api/analyze/route.ts
+  api/github/risk/route.ts
+  globals.css
+  layout.tsx
+  page.tsx
 components/
-  change-risk-workbench.tsx Main UI and streamed result panel
-/.changeRisk/
-  README.md                 Repo-grounding contract for the demo
-  project.md                Project shape, sensitive paths, and priorities
-  risk-taxonomy.md          Repo-specific low/medium/high/unknown definitions
-  policy.yaml               Path sensitivity, review defaults, and PR exemptions
-  examples/                 Repo-native grading examples
+  change-risk-workbench.tsx
+.changeRisk/
+  README.md
+  policy.yaml
+  project.md
+  risk-taxonomy.md
+  examples/
 lib/
-  artifact-ingestion.ts      Artifact parsing and normalization
-  change-tools.ts           AI SDK tools for checklist and runbook lookup
-  demo-scenarios.ts         Four curated demo artifacts
-  fixtures.ts               12 synthetic scenarios and expectations
-  model.ts                  AI Gateway model defaults
-  prompt.ts                 Server prompt construction
-  report.ts                 Deterministic fallback formatter
-  risk-engine.ts            Shared heuristic assessment layer
-  types.ts                  Shared schemas and domain types
-  ui-stream.ts              Helper for streaming non-LLM text responses
+  analysis-ui-message.ts
+  artifact-ingestion.ts
+  change-tools.ts
+  demo-scenarios.ts
+  fixtures.ts
+  github-risk.ts
+  model.ts
+  prompt.ts
+  repo-grounding.ts
+  repo-risk-policy.ts
+  report.ts
+  review.ts
+  risk-engine.ts
+  risk-policy.ts
+  types.ts
+  ui-stream.ts
 scripts/
-  eval.ts                   Lightweight fixture-based evaluation
+  build-pr-risk-payload.ts
+  eval.ts
+  pr-risk.ts
+data/
+  change-risk-copilot-dataset.json
 ```
 
-## Exact MVP Feature Set
+## Review Flow
 
-- Single-page change review workbench with an artifact-first input.
-- Support for PR diffs, Terraform plans, change tickets, release notes, and config changes.
-- Four curated demo artifacts in the UI: low, medium, high, and explicit unknown.
-- Optional advanced context panel for rollout, rollback, observability, and scope overrides.
-- Deterministic preview showing provisional risk level, evidence strength, blast radius, and clarifying questions before model output.
-- Optional repo grounding pack so severity calibration can be repo-specific instead of purely generic.
-- Visible runtime mode section showing deterministic preview, AI-assisted final assessment, and fallback usage.
-- Evidence and provenance chips for signals used and missing evidence.
-- Streamed final assessment covering:
-  - risk rating
-  - blast radius
-  - reasoning
-  - missing info
-  - rollback considerations
-  - executive summary
-- Lightweight tool activity panel so the demo can show checklist and runbook lookups without turning into a generic chatbot.
-- Explicit handling for ambiguous inputs using `unknown` risk rather than throwing validation errors.
-- Deterministic fallback mode when the model is unavailable locally.
-- Lightweight evaluation script over synthetic fixtures.
-
-## Eval Approach
-
-The MVP uses a pragmatic, low-cost regression eval instead of a full judge-model pipeline.
-
-- `pnpm eval` runs the shared heuristic engine against 12 synthetic fixtures.
-- The product UI only shows four curated presets so the demo stays focused, but the regression harness keeps the broader 12-case synthetic set.
-- Each fixture checks:
-  - expected risk level
-  - at least one expected blast-radius keyword
-  - minimum clarifying question count
-  - rollback guidance presence
-  - explicit unknown handling for ambiguous cases
-- This eval keeps the stable, explainable layer under test without requiring model calls on every run.
-
-## Repo Grounding Pack
-
-The demo now includes a committed `.changeRisk/` folder to represent the repo-local
-context a real deployment would maintain.
-
-- `project.md` explains what is in scope and which runtime paths are sensitive.
-- `risk-taxonomy.md` defines what `low`, `medium`, `high`, and `unknown` mean for this repo.
-- `policy.yaml` captures lightweight path sensitivity, review expectations, and optional non-runtime PR exemptions.
-- `examples/` provides short repo-native examples that calibrate the grader.
-
-The current server review flow loads this pack and includes it in the model prompt
-when present. That keeps model choice separate from repo policy and gives a clean
-demo story for future automation that refreshes the pack over time.
-
-## Sample Fixture Types
-
-```ts
-type ChangeFixture = {
-  id: string;
-  title: string;
-  description: string;
-  request: ChangeRequest;
-  expected: {
-    riskLevel: 'low' | 'medium' | 'high' | 'unknown';
-    blastRadiusKeywords: string[];
-    minimumQuestions: number;
-    expectRollbackGuidance: boolean;
-    expectUnknownHandling?: boolean;
-  };
-};
-```
-
-## Twelve Concrete Test Cases
-
-1. Billing banner copy behind existing flag: low
-2. Async worker memory limit increase: low
-3. Redis cart TTL reduction: medium
-4. Authentication SDK major upgrade: medium
-5. Concurrent index on orders table: medium
-6. Production security group tightening: high
-7. Kubernetes ingress path rewrite: high
-8. Drop legacy customer column: high
-9. VPC peering route table change: high
-10. Vague production performance tuning: unknown
-11. Undefined cache layer rollout: unknown
-12. Node-level logging agent rollout: medium
-
-## Implementation Plan In Phases
-
-1. Foundation
-Create the Next.js App Router shell, shared types, environment defaults, and the basic workbench layout.
-
-2. Deterministic Layer
-Implement the shared heuristic risk engine plus synthetic fixtures so the app has a preview, a fallback, and an explainable baseline.
-
-3. Streaming AI Layer
-Add the `/api/analyze` route with `streamText`, AI Gateway model configuration, and streamed UI rendering via `useChat`.
-
-4. Hardening
-Add the fixture-based eval, write the README, and verify build, lint, and typecheck behavior.
+1. The UI or API submits a change artifact.
+2. `lib/artifact-ingestion.ts` extracts a normalized `ChangeRequest`.
+3. `lib/risk-engine.ts` produces a deterministic baseline assessment.
+4. If AI Gateway is available, the primary model runs first.
+5. If the first review is uncertain, `lib/review.ts` escalates to the configured stronger model.
+6. Tool calls may fetch a change checklist or a lightweight runbook.
+7. `lib/risk-policy.ts` converts the final review into a gate decision for PR workflows.
+8. If model access is unavailable or unusable, the deterministic baseline becomes the final answer.
 
 ## Setup
 
@@ -150,46 +105,96 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Set `AI_GATEWAY_API_KEY` for local model calls. On Vercel, Gateway OIDC can be used instead. `AI_MODEL` is optional and defaults to `openai/gpt-5-mini`.
+Local model access requires `AI_GATEWAY_API_KEY`.
+
+Optional model overrides:
+
+- `RISK_PRIMARY_MODEL`
+- `RISK_ESCALATION_MODEL`
+- `DEMO_USERNAME`
+- `DEMO_PASSWORD`
+- `RISK_API_KEY`
+
+Current defaults in code:
+
+- primary: `amazon/nova-micro`
+- escalation: `google/gemini-3-flash`
+
+If no gateway credentials are available, the app still works in deterministic fallback mode.
+
+## Demo Deployment Setup
+
+Use Vercel Deployment Protection for the deployment itself, Vercel's automation bypass for GitHub Actions, and two tiny app-level secrets for the parts Vercel does not scope narrowly enough for this demo.
+
+Vercel environment variables:
+
+- `AI_GATEWAY_API_KEY`
+- `DEMO_USERNAME=demo`
+- `DEMO_PASSWORD=<short random password>`
+- `RISK_API_KEY=<separate random token for GitHub Actions>`
+- Optional: `RISK_PRIMARY_MODEL`
+- Optional: `RISK_ESCALATION_MODEL`
+
+GitHub Actions secrets:
+
+- `RISK_ENDPOINT_URL`
+- `VERCEL_AUTOMATION_BYPASS_SECRET`
+- `RISK_API_KEY`
+  - Must match the Vercel `RISK_API_KEY`
+
+Recommended setup:
+
+1. Import the GitHub repo into Vercel.
+2. Add the Vercel environment variables above.
+3. Enable Deployment Protection for the deployment you will share.
+4. Create the Vercel automation bypass secret.
+5. Deploy once and set `RISK_ENDPOINT_URL=https://<deployment-url>/api/github/risk` in GitHub.
+6. Re-run the PR workflow and confirm it can post the sticky PR comment.
+
+Result:
+
+- Visiting the demo URL prompts for HTTP Basic Auth using `DEMO_USERNAME` and `DEMO_PASSWORD`.
+- GitHub Actions calls `/api/github/risk` with both the Vercel bypass header and `Authorization: Bearer <RISK_API_KEY>`.
 
 ## Commands
 
 ```bash
-pnpm dev                 # Run the Next.js app
-pnpm build               # Build the app
-pnpm risk:pr            # Evaluate the current PR diff inside GitHub Actions
+pnpm dev
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm eval
+pnpm risk:pr
+pnpm check
 ```
 
-## GitHub Automation Path
+`pnpm check` runs typecheck, lint, and the fixture eval suite.
 
-The repo now includes a deployable JSON endpoint at `/api/github/risk` plus CI helpers in `scripts/`.
+## Eval Coverage
 
-- `POST /api/github/risk` accepts PR-like payloads with title, body, diff, optional file patches, and optional policy overrides.
-- The endpoint reuses the same artifact ingestion and deterministic risk engine used by the workbench.
-- The policy layer converts the assessment into a gate outcome: `pass`, `warn`, or `fail`.
-- `.github/workflows/pr-risk.yml` shows the Vercel-native demo path: run baseline checks, build a PR payload, call the deployed Vercel preview endpoint, post a sticky PR comment, and fail the job when the policy says to block.
-- `scripts/build-pr-risk-payload.ts` converts the GitHub event plus git diff into the JSON body the deployed endpoint expects.
-- `scripts/pr-risk.ts` remains available as a local fallback for development, but the demo workflow intentionally leans on the deployed Vercel endpoint.
+`pnpm eval` runs the deterministic engine against 12 synthetic fixtures and checks:
 
-### Vercel Demo Setup
+- expected risk level
+- blast-radius keywords
+- minimum clarifying-question count
+- rollback guidance presence
+- explicit unknown handling for ambiguous cases
 
-For the interview demo, the simplest defensible setup is:
+The interactive workbench only exposes four demo scenarios, but the fixture set is broader.
 
-1. Deploy this repo to Vercel as a preview deployment.
-2. Turn on Vercel Deployment Protection for previews.
-3. Share the protected preview URL with humans using Vercel's native access flow.
-4. Configure GitHub Actions to call the same preview URL using Vercel's native automation bypass header.
+## APIs
 
-Required GitHub Actions secrets:
+### `POST /api/analyze`
 
-- `RISK_ENDPOINT_URL`
-  Set this to the protected Vercel preview URL for the deployed endpoint, for example `https://your-demo-url.vercel.app/api/github/risk`.
-- `VERCEL_AUTOMATION_BYPASS_SECRET`
-  Use the bypass secret from Vercel Deployment Protection so GitHub Actions can reach the preview deployment without hand-rolled app auth.
+Accepts workbench-style requests with chat messages, a partial normalized request, and/or a fixture id. The route streams:
 
-This demo intentionally does not add a custom password wall. The point is to show that Vercel's native preview deployment and protection features are enough to support a real GitHub-to-deployment flow with very little application code.
+- progress updates for primary, escalation, fallback, and completion states
+- structured review result data
+- the final readable report text
 
-Example endpoint request:
+### `POST /api/github/risk`
+
+Accepts PR-style JSON:
 
 ```json
 {
@@ -201,28 +206,45 @@ Example endpoint request:
 }
 ```
 
-Example response shape:
+Response fields include:
 
-```json
-{
-  "ok": true,
-  "decision": {
-    "status": "fail",
-    "summary": "PR should be blocked pending review."
-  },
-  "assessment": {
-    "riskLevel": "high",
-    "score": 61,
-    "evidenceStrength": "moderate"
-  }
-}
-```
+- `decision`
+- `assessment`
+- `initialAssessment`
+- `baselineAssessment`
+- `trail`
+- `request`
+- `toolActivity`
 
-## Deliberate Trade-offs
+If all changed files match repo-defined non-runtime paths or extensions, the PR can take the `policy-exempt` path without invoking the operational review flow.
 
-- The output is a streamed narrative report, not a deeply structured dashboard. That keeps the build small and the enterprise story easy to defend in 4-6 hours.
-- The heuristic engine is intentionally simple and readable. It is not a full rules engine; it exists to ground the model, surface ambiguity, and provide a deterministic fallback.
-- The artifact parser is intentionally heuristic and transparent. Its job is to reduce demo friction, not to pretend it can fully parse every change document.
-- There is no persistence, auth, or database because those concerns do not materially improve the take-home signal.
-- The eval harness focuses on the deterministic layer, not on subjective model grading. That is a deliberate choice to keep cost and complexity low while still showing regression discipline.
-- The UI behaves like a workbench, not a memoryful chatbot. Each run clears prior messages so reviewers do not accidentally inherit stale context.
+## GitHub Automation
+
+The repo includes a sample workflow at `.github/workflows/pr-risk.yml`.
+
+That workflow:
+
+- runs `pnpm check`
+- builds a PR payload with `scripts/build-pr-risk-payload.ts`
+- calls the deployed `/api/github/risk` endpoint
+- posts or updates a sticky PR comment
+- fails the job when the returned decision status is `fail`
+
+The intended deployment story is a protected Vercel preview endpoint plus the Vercel automation bypass secret for GitHub Actions.
+
+The workflow now also sends `Authorization: Bearer $RISK_API_KEY` so the deployed PR-risk route has a narrow machine credential in addition to Vercel's deployment-level bypass.
+
+## Repo Grounding
+
+`.changeRisk/` is optional but supported by the live code.
+
+- `project.md` describes repo-specific scope and sensitive areas.
+- `risk-taxonomy.md` calibrates what low, medium, high, and unknown mean for this repo.
+- `policy.yaml` defines non-runtime exemptions and related policy inputs.
+- `examples/` provides repo-native calibration examples for the model prompt.
+
+## Notes
+
+- The visible grade in the UI is the model-generated final review, not the deterministic baseline.
+- The deterministic engine remains important for fallback behavior, evals, and provenance.
+- The app is intentionally single-session and does not include persistence, auth, or a database.
