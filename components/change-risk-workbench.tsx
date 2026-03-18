@@ -11,11 +11,7 @@ import {
   getDemoScenarioById,
   type DemoScenario,
 } from '@/lib/demo-scenarios';
-import {
-  DEFAULT_ESCALATION_MODEL,
-  DEFAULT_PRIMARY_MODEL,
-  getModelLabel,
-} from '@/lib/model';
+import { getModelLabel, type GatewayModelId } from '@/lib/model';
 import type { ReviewProgressData } from '@/lib/review';
 import {
   artifactTypeLabels,
@@ -47,6 +43,11 @@ type ChangeFormState = {
   safeguards: string;
   changeWindow: string;
   knownUnknowns: string;
+};
+
+type ChangeRiskWorkbenchProps = {
+  primaryModelId: GatewayModelId;
+  escalationModelId: GatewayModelId;
 };
 
 const emptyFormState: ChangeFormState = {
@@ -369,7 +370,10 @@ function getGateStatusDisplay(status: 'pass' | 'warn' | 'fail') {
   };
 }
 
-export function ChangeRiskWorkbench() {
+export function ChangeRiskWorkbench({
+  primaryModelId,
+  escalationModelId,
+}: ChangeRiskWorkbenchProps) {
   const [form, setForm] = useState<ChangeFormState>(emptyFormState);
   const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
   const [reviewResult, setReviewResult] = useState<ChangeReviewResult | null>(
@@ -884,7 +888,7 @@ export function ChangeRiskWorkbench() {
                     <div className="pipeline-summary-card">
                       <div className="signal-label">First Pass</div>
                       <span className="mode-pill mode-pill-quiet">
-                        {getModelLabel(DEFAULT_PRIMARY_MODEL)}
+                        {getModelLabel(primaryModelId)}
                       </span>
                       <div className="signal-copy">
                         Cheap classifier for easy, low-ambiguity changes.
@@ -894,7 +898,7 @@ export function ChangeRiskWorkbench() {
                     <div className="pipeline-summary-card">
                       <div className="signal-label">Escalation</div>
                       <span className="mode-pill mode-pill-warning">
-                        {getModelLabel(DEFAULT_ESCALATION_MODEL)}
+                        {getModelLabel(escalationModelId)}
                       </span>
                       <div className="signal-copy">
                         Runs only when the first pass stays medium, weak, or

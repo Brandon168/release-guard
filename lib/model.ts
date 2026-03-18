@@ -20,9 +20,6 @@ export const REVIEW_MODEL_OPTIONS = [
 
 export type GatewayModelId = (typeof REVIEW_MODEL_OPTIONS)[number]['id'];
 
-export const DEFAULT_PRIMARY_MODEL: GatewayModelId = 'amazon/nova-micro';
-export const DEFAULT_ESCALATION_MODEL: GatewayModelId = 'google/gemini-3-flash';
-
 const gatewayModelIds = new Set<GatewayModelId>(
   REVIEW_MODEL_OPTIONS.map(option => option.id),
 );
@@ -35,30 +32,33 @@ export function isGatewayModelId(value: string): value is GatewayModelId {
   return gatewayModelIds.has(value as GatewayModelId);
 }
 
-function getConfiguredModel({
-  configuredValue,
-  fallback,
-}: {
-  configuredValue?: string | null;
-  fallback: GatewayModelId;
-}) {
-  if (configuredValue && isGatewayModelId(configuredValue)) {
-    return configuredValue;
+export function getConfiguredReviewModels() {
+  const primaryModelId = process.env.RISK_PRIMARY_MODEL?.trim();
+  const escalationModelId = process.env.RISK_ESCALATION_MODEL?.trim();
+
+  if (!primaryModelId) {
+    throw new Error('Missing required env var: RISK_PRIMARY_MODEL');
   }
 
-  return fallback;
-}
+  if (!isGatewayModelId(primaryModelId)) {
+    throw new Error(
+      `Invalid RISK_PRIMARY_MODEL: ${primaryModelId}. Expected one of: ${REVIEW_MODEL_OPTIONS.map(option => option.id).join(', ')}`,
+    );
+  }
 
-export function getConfiguredReviewModels() {
+  if (!escalationModelId) {
+    throw new Error('Missing required env var: RISK_ESCALATION_MODEL');
+  }
+
+  if (!isGatewayModelId(escalationModelId)) {
+    throw new Error(
+      `Invalid RISK_ESCALATION_MODEL: ${escalationModelId}. Expected one of: ${REVIEW_MODEL_OPTIONS.map(option => option.id).join(', ')}`,
+    );
+  }
+
   return {
-    primaryModelId: getConfiguredModel({
-      configuredValue: process.env.RISK_PRIMARY_MODEL?.trim(),
-      fallback: DEFAULT_PRIMARY_MODEL,
-    }),
-    escalationModelId: getConfiguredModel({
-      configuredValue: process.env.RISK_ESCALATION_MODEL?.trim(),
-      fallback: DEFAULT_ESCALATION_MODEL,
-    }),
+    primaryModelId,
+    escalationModelId,
   };
 }
 

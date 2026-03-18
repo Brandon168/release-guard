@@ -1,6 +1,6 @@
 # Release Guard
 
-Release Guard is a Next.js demo for assessing release risk from change artifacts such as PR diffs, Terraform plans, change tickets, release notes, and config changes.
+Release Guard is a Next.js demo for assessing release risk from PR diffs, Terraform plans, change tickets, release notes, and config changes.
 
 The app is built around a cheap-first review path:
 
@@ -13,7 +13,7 @@ The same review pipeline powers both the interactive workbench and the GitHub-or
 
 ## What The App Does
 
-- Single-page analyst workbench with one primary artifact input and an optional refinement panel.
+- Single-page analyst workbench with one primary artifact input and a lightweight refinement panel.
 - Four curated demo scenarios in the UI.
 - Final structured review with:
   - risk level
@@ -33,7 +33,7 @@ The same review pipeline powers both the interactive workbench and the GitHub-or
 
 - `app/page.tsx` renders a single `ChangeRiskWorkbench`.
 - `components/change-risk-workbench.tsx` owns the artifact form, demo scenarios, review-path UI, deterministic guardrail panel, and GitHub preview tab.
-- `app/api/analyze/route.ts` accepts a normalized change request and streams back the final narrative report plus structured review data.
+- `app/api/analyze/route.ts` accepts workbench-style requests, fixtures, or PR-style payloads and streams back the final report plus structured review data.
 - `lib/review.ts` orchestrates the review pipeline:
   - deterministic baseline
   - primary model review
@@ -42,6 +42,7 @@ The same review pipeline powers both the interactive workbench and the GitHub-or
 - `lib/model.ts` configures the primary and escalation AI Gateway models.
 - `lib/github-risk.ts` reuses the same review logic for PR-style payloads and applies gate policy.
 - `app/api/github/risk/route.ts` exposes the PR risk JSON endpoint.
+- `proxy.ts` applies optional Basic Auth to the demo while leaving the PR risk API outside that gate.
 - `lib/repo-grounding.ts` and `lib/repo-risk-policy.ts` load repo-local calibration and exemption rules from `.changeRisk/`.
 
 ## Repo Structure
@@ -55,6 +56,7 @@ app/
   page.tsx
 components/
   change-risk-workbench.tsx
+proxy.ts
 .changeRisk/
   README.md
   policy.yaml
@@ -67,12 +69,14 @@ lib/
   change-tools.ts
   demo-scenarios.ts
   fixtures.ts
+  github-comment.ts
   github-risk.ts
   model.ts
   prompt.ts
   repo-grounding.ts
   repo-risk-policy.ts
   report.ts
+  request-auth.ts
   review.ts
   risk-engine.ts
   risk-policy.ts
@@ -107,24 +111,22 @@ pnpm dev
 
 Local model access requires `AI_GATEWAY_API_KEY`.
 
-Optional model overrides:
+Required model configuration:
 
 - `RISK_PRIMARY_MODEL`
 - `RISK_ESCALATION_MODEL`
+
+Other environment variables:
+
 - `DEMO_USERNAME`
 - `DEMO_PASSWORD`
 - `RISK_API_KEY`
-
-Current defaults in code:
-
-- primary: `amazon/nova-micro`
-- escalation: `google/gemini-3-flash`
 
 If no gateway credentials are available, the app still works in deterministic fallback mode.
 
 ## Demo Deployment Setup
 
-Use Vercel Deployment Protection for the deployment itself, Vercel's automation bypass for GitHub Actions, and two tiny app-level secrets for the parts Vercel does not scope narrowly enough for this demo.
+Use Vercel Deployment Protection for the deployment itself, Vercel's automation bypass for GitHub Actions, and two app-level secrets for the demo.
 
 Vercel environment variables:
 
@@ -132,8 +134,8 @@ Vercel environment variables:
 - `DEMO_USERNAME=demo`
 - `DEMO_PASSWORD=<short random password>`
 - `RISK_API_KEY=<separate random token for GitHub Actions>`
-- Optional: `RISK_PRIMARY_MODEL`
-- Optional: `RISK_ESCALATION_MODEL`
+- `RISK_PRIMARY_MODEL`
+- `RISK_ESCALATION_MODEL`
 
 GitHub Actions secrets:
 
@@ -186,7 +188,7 @@ The interactive workbench only exposes four demo scenarios, but the fixture set 
 
 ### `POST /api/analyze`
 
-Accepts workbench-style requests with chat messages, a partial normalized request, and/or a fixture id. The route streams:
+Accepts chat messages, a partial normalized request, a fixture id, and/or a `github` payload for PR-style review. The route streams:
 
 - progress updates for primary, escalation, fallback, and completion states
 - structured review result data
@@ -215,6 +217,7 @@ Response fields include:
 - `trail`
 - `request`
 - `toolActivity`
+- `commentBody`
 
 If all changed files match repo-defined non-runtime paths or extensions, the PR can take the `policy-exempt` path without invoking the operational review flow.
 
@@ -222,13 +225,7 @@ If all changed files match repo-defined non-runtime paths or extensions, the PR 
 
 The repo includes a sample workflow at `.github/workflows/pr-risk.yml`.
 
-That workflow:
-
-- runs `pnpm check`
-- builds a PR payload with `scripts/build-pr-risk-payload.ts`
-- calls the deployed `/api/github/risk` endpoint
-- posts or updates a sticky PR comment
-- fails the job when the returned decision status is `fail`
+That workflow runs `pnpm check`, builds a PR payload with `scripts/build-pr-risk-payload.ts`, calls the deployed `/api/github/risk` endpoint, posts or updates a sticky PR comment, and fails the job when the returned decision status is `fail`.
 
 The intended deployment story is a protected Vercel preview endpoint plus the Vercel automation bypass secret for GitHub Actions.
 
@@ -245,6 +242,6 @@ The workflow now also sends `Authorization: Bearer $RISK_API_KEY` so the deploye
 
 ## Notes
 
-- The visible grade in the UI is the model-generated final review, not the deterministic baseline.
+- The visible grade in the UI is the final review, not the deterministic baseline.
 - The deterministic engine remains important for fallback behavior, evals, and provenance.
-- The app is intentionally single-session and does not include persistence, auth, or a database.
+- The app is intentionally single-session and does not include persistence or a database.
