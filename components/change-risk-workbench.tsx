@@ -94,6 +94,7 @@ const artifactTypeOptions: ArtifactType[] = [
   'unknown',
 ];
 
+// Request-shaping helpers keep form input and demo fixtures on one normalized path.
 function splitList(value: string) {
   return value
     .split(/[,\n]/)
@@ -154,6 +155,7 @@ function extractText(message?: UIMessage) {
     .join('');
 }
 
+// UI display mappers keep the render tree focused on structure rather than branching.
 function getRiskBadgeClass(riskLevel: RiskLevel) {
   if (riskLevel === 'high') {
     return 'badge badge-high';
@@ -370,10 +372,12 @@ function getGateStatusDisplay(status: 'pass' | 'warn' | 'fail') {
   };
 }
 
+// Walkthrough order: local state -> transport -> derived view model -> handlers -> render panes.
 export function ChangeRiskWorkbench({
   primaryModelId,
   escalationModelId,
 }: ChangeRiskWorkbenchProps) {
+  // 1) Local form state, workflow toggles, and result objects.
   const [form, setForm] = useState<ChangeFormState>(emptyFormState);
   const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
   const [reviewResult, setReviewResult] = useState<ChangeReviewResult | null>(
@@ -391,6 +395,7 @@ export function ChangeRiskWorkbench({
   const [activeResultsView, setActiveResultsView] = useState<
     'summary' | 'trace' | 'github'
   >('summary');
+  // 2) Single streaming transport for analysis progress, result payloads, and report text.
   const {
     messages,
     sendMessage,
@@ -418,6 +423,7 @@ export function ChangeRiskWorkbench({
     },
   });
 
+  // 3) Derived view model for button state, empty-state copy, badges, and active panes.
   const submitRequest = formToRequest(form);
   const activeScenario = activeScenarioId
     ? getDemoScenarioById(activeScenarioId)
@@ -473,6 +479,7 @@ export function ChangeRiskWorkbench({
     ? getGateStatusDisplay(decision.status)
     : null;
 
+  // 4) Request payload builder and user actions that reset or submit the workspace.
   function buildGitHubRequestBody() {
     const title = submitRequest.title || 'Release Guard preview';
     const bodySections = [
@@ -561,9 +568,11 @@ export function ChangeRiskWorkbench({
     });
   }
 
+  // 5) Render layout: left pane collects evidence, right pane explains and exports decisions.
   return (
     <main className="shell">
       <section className="workspace">
+        {/* Left pane: change artifact input plus optional context refinements. */}
         <div className="panel">
           <div className="panel-inner">
             <form className="form" onSubmit={handleSubmit}>
@@ -927,6 +936,7 @@ export function ChangeRiskWorkbench({
           </div>
         </div>
 
+        {/* Right pane: live status plus summary, trace, and GitHub output views. */}
         <div className="right-column">
           {showAnalysisPanels ? (
             <>
@@ -986,6 +996,7 @@ export function ChangeRiskWorkbench({
               </div>
 
               <div className="results-view-stage">
+                {/* Summary view: final judgment, confidence, action, and operator report. */}
                 {activeResultsView === 'summary' ? (
                   <div className="results-view-pane">
                     <div className="panel">
@@ -1162,6 +1173,7 @@ export function ChangeRiskWorkbench({
                   </div>
                 ) : null}
 
+                {/* Trace view: model path provenance and deterministic guardrail context. */}
                 {activeResultsView === 'trace' ? (
                   <div className="results-view-pane trace-pane">
                     <div className="panel">
@@ -1429,6 +1441,7 @@ export function ChangeRiskWorkbench({
                   </div>
                 ) : null}
 
+                {/* GitHub view: the exact PR comment payload this run would post. */}
                 {activeResultsView === 'github' ? (
                   <div className="results-view-pane">
                     <div className="panel github-preview-panel">
