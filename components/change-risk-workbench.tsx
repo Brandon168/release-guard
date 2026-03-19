@@ -556,6 +556,7 @@ export function ChangeRiskWorkbench({
     setActiveResultsView('summary');
     setMessages([]);
 
+    // One submit drives the shared review run and the GitHub preview together.
     await sendMessage({
       text:
         submitRequest.title ||

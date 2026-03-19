@@ -57,6 +57,7 @@ export function evaluateRiskPolicy({
   trail: ReviewTrail;
   policy?: Partial<RiskPolicy>;
 }): RiskDecision {
+  // Keep enforcement separate from assessment so teams can tune gate behavior.
   const policy = normalizeRiskPolicy(policyOverrides);
   const failReasons: string[] = [];
   const warnReasons: string[] = [];

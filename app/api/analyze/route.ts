@@ -95,6 +95,7 @@ export async function POST(req: Request) {
       '',
   });
 
+  // Shared backend entrypoint for both the workbench and GitHub-shaped flow.
   const stream = createUIMessageStream<AnalysisUIMessage>({
     originalMessages,
     execute: async ({ writer }) => {
@@ -160,6 +161,7 @@ export async function POST(req: Request) {
 
       const report = buildReviewReport(reviewResult);
 
+      // One run streams back structured data plus the readable report text.
       writer.write({
         type: 'data-review-result',
         data: reviewResult,

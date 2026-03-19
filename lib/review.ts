@@ -343,6 +343,7 @@ export async function reviewChangeRisk(
   const { primaryModelId, escalationModelId } = getConfiguredReviewModels();
   const simulateModelFallback = options.simulateModelFallback === true;
 
+  // Core pipeline: baseline first, cheap model first, escalate only on uncertainty.
   if (simulateModelFallback) {
     options.onProgress?.({
       stage: 'fallback',
