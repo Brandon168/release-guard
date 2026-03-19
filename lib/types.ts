@@ -111,17 +111,24 @@ export type RiskAssessment = {
   executiveSummary: string;
 };
 
-export const reviewAssessmentSchema = z.object({
-  riskLevel: z.enum(riskLevels),
-  confidence: z.enum(evidenceStrengths),
-  expectedScope: z.enum(expectedScopes),
-  scopeSummary: z.string().min(1),
-  reasoning: z.array(z.string().min(1)).min(1).max(5),
-  missingInfo: z.array(z.string().min(1)).max(5).default([]),
-  rollbackConsiderations: z.array(z.string().min(1)).max(5).default([]),
-  recommendedAction: z.enum(recommendedActions),
-  executiveSummary: z.string().min(1),
-});
+export const reviewAssessmentSchema = z
+  .object({
+    riskLevel: z.enum(riskLevels),
+    confidence: z.enum(evidenceStrengths),
+    expectedScope: z.enum(expectedScopes),
+    scopeSummary: z.string().min(1),
+    reasoning: z.array(z.string().min(1)).min(1),
+    missingInfo: z.array(z.string().min(1)).default([]),
+    rollbackConsiderations: z.array(z.string().min(1)).default([]),
+    recommendedAction: z.enum(recommendedActions),
+    executiveSummary: z.string().min(1),
+  })
+  .transform(assessment => ({
+    ...assessment,
+    reasoning: assessment.reasoning.slice(0, 5),
+    missingInfo: assessment.missingInfo.slice(0, 5),
+    rollbackConsiderations: assessment.rollbackConsiderations.slice(0, 5),
+  }));
 
 export type ReviewAssessment = z.infer<typeof reviewAssessmentSchema>;
 

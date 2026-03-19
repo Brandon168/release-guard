@@ -1,3 +1,9 @@
+// Policy engine: converts a structured review assessment into a pass/warn/fail
+// gate decision. Policy is intentionally separate from the review so that teams
+// can tune thresholds (e.g. failOnUnknown, warnOnFallback) per repo without
+// changing the review logic itself. The default policy fails closed on both
+// high-risk and unknown grades — treating uncertainty as a reason to block, not
+// a reason to proceed.
 import type { ReviewAssessment, ReviewTrail } from '@/lib/types';
 
 export type RiskGateStatus = 'pass' | 'warn' | 'fail';

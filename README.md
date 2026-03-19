@@ -11,6 +11,14 @@ The app is built around a cheap-first review path:
 
 The same review pipeline powers both the interactive workbench and the GitHub-oriented PR risk endpoint.
 
+## Usage
+
+1. Start the app with `pnpm dev`.
+2. Paste a PR diff, Terraform plan, change ticket, release note, or config change into the workbench.
+3. Pick one of the demo scenarios if you want a guided example.
+4. Review the deterministic baseline, model escalation, fallback path, and final gate decision.
+5. Use the `/api/analyze` endpoint for the interactive workflow or `/api/github/risk` for PR gating.
+
 ## What The App Does
 
 - Single-page analyst workbench with one primary artifact input and a lightweight refinement panel.
@@ -92,6 +100,8 @@ data/
 
 ## Review Flow
 
+![Flow diagram](public/flow-diagram.png)
+
 1. The UI or API submits a change artifact.
 2. `lib/artifact-ingestion.ts` extracts a normalized `ChangeRequest`.
 3. `lib/risk-engine.ts` produces a deterministic baseline assessment.
@@ -166,15 +176,30 @@ pnpm build
 pnpm lint
 pnpm typecheck
 pnpm eval
+pnpm eval --models-only
+pnpm eval --baseline-only
+pnpm eval --all-model-fixtures
 pnpm risk:pr
 pnpm check
 ```
 
-`pnpm check` runs typecheck, lint, and the fixture eval suite.
+Recommended usage:
+
+- `pnpm eval` is the best demo command. It shows the 12-fixture deterministic baseline suite first, then a live model-path smoke test with primary, escalation, and final model/source reporting.
+- `pnpm eval --models-only` is the fastest demo when you want to focus on the cheap-first model story and the live review trail.
+- `pnpm eval --baseline-only` is the deterministic safety-floor suite only. This is what `pnpm check` uses so CI stays stable and cheap.
+- `pnpm eval --all-model-fixtures` runs the live model path across all 12 fixtures. It is slower and more expensive, so it is better for a deeper calibration pass than a short terminal demo.
+
+`pnpm check` runs typecheck, lint, and `pnpm eval --baseline-only`.
 
 ## Eval Coverage
 
-`pnpm eval` runs the deterministic engine against 12 synthetic fixtures and checks:
+The eval runner now has two layers:
+
+- Deterministic baseline: 12 synthetic fixtures across low, medium, high, and unknown tiers, with 5 checks per fixture.
+- Live model smoke: a smaller fixture set by default, using the real primary model, escalation path, and final source reporting. This section streams progress live in the terminal.
+
+The deterministic baseline checks:
 
 - expected risk level
 - blast-radius keywords
@@ -182,7 +207,9 @@ pnpm check
 - rollback guidance presence
 - explicit unknown handling for ambiguous cases
 
-The interactive workbench only exposes four demo scenarios, but the fixture set is broader.
+The default live model smoke uses four featured fixtures, one per tier. Pass `--all-model-fixtures` if you want the live model path across the full synthetic set.
+
+The interactive workbench only exposes four demo scenarios, but the deterministic fixture set is broader.
 
 ## APIs
 
@@ -239,6 +266,12 @@ The workflow now also sends `Authorization: Bearer $RISK_API_KEY` so the deploye
 - `risk-taxonomy.md` calibrates what low, medium, high, and unknown mean for this repo.
 - `policy.yaml` defines non-runtime exemptions and related policy inputs.
 - `examples/` provides repo-native calibration examples for the model prompt.
+
+## Runtime Choice
+
+The API routes use the default Node.js runtime, not the Vercel Edge Runtime. This is a deliberate choice: `lib/repo-grounding.ts` and `lib/repo-risk-policy.ts` use `node:fs` to read the `.changeRisk/` grounding pack from the deployed filesystem. Edge Runtime does not support `node:fs`, so Edge would require moving repo grounding to a database or KV store — unnecessary complexity for a repo-local policy model.
+
+Features like ISR and Edge Middleware are not used because every review request is unique (no cacheable responses) and authentication is handled at the route level via Basic Auth and Bearer tokens rather than middleware.
 
 ## Notes
 

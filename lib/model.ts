@@ -1,3 +1,8 @@
+// Model configuration via Vercel AI Gateway.
+// Primary model is chosen for cost and speed on routine reviews (~$0.04/M in).
+// Escalation model is stronger and more expensive (~$0.50/M in, ~21x output
+// cost) but only triggers when the primary pass is uncertain.
+// AI Gateway abstracts provider details so model swaps require zero code changes.
 import { gateway } from 'ai';
 
 export const REVIEW_MODEL_OPTIONS = [

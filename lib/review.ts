@@ -1,3 +1,10 @@
+// Review pipeline: cheap-first model strategy with deterministic fallback.
+// The pipeline always starts with the deterministic risk engine, then tries a
+// low-cost model (primary), auto-escalates to a stronger model only when the
+// primary review is uncertain, and falls back to the deterministic baseline if
+// any model call fails. This keeps routine reviews fast and cheap while
+// ensuring the product always returns a governable result — even during model
+// outages or gateway misconfiguration.
 import { generateText, Output, stepCountIs } from 'ai';
 import { analysisTools } from '@/lib/change-tools';
 import {
@@ -128,6 +135,9 @@ function mapDeterministicAssessment(
   };
 }
 
+// System prompt anchors the model to judge (not summarize) and forbids
+// hallucinating systems or safeguards not present in the artifact. The
+// grounding rules here are the primary defense against confabulation.
 function buildReviewSystemPrompt() {
   return [
     'You are Release Guard, an enterprise reviewer for software and infrastructure changes.',
@@ -139,6 +149,7 @@ function buildReviewSystemPrompt() {
     'Use getChangeChecklist once for the most relevant change type.',
     'Use lookupRunbook only when a named service or system would materially improve rollback or monitoring guidance.',
     'Keep reasoning short, concrete, and defensible.',
+    'Return at most 5 reasoning items, 5 missingInfo items, and 5 rollbackConsiderations items.',
     'Return structured output only.',
   ].join('\n');
 }
@@ -162,6 +173,7 @@ function buildReviewPrompt({
     'If the artifact is ambiguous, say so in missingInfo and keep the confidence limited.',
     'Scope should be one of: narrow, moderate, broad, unclear.',
     'Recommended action should match the risk: low->approve, medium->review, high->block, unknown->need-more-info.',
+    'Limit reasoning, missingInfo, and rollbackConsiderations to 5 items each.',
     '',
     'Structured change request:',
     JSON.stringify(request, null, 2),
@@ -189,6 +201,9 @@ function buildReviewPrompt({
   return sections.join('\n');
 }
 
+// Escalation triggers are intentionally conservative. The primary model is
+// cheap and fast, so we only pay for the stronger model when the first pass
+// signals genuine uncertainty — not just any non-low result.
 function getEscalationReason(assessment: ReviewAssessment) {
   if (assessment.riskLevel === 'unknown') {
     return 'the initial model kept the grade unknown';
@@ -216,6 +231,9 @@ function getEscalationReason(assessment: ReviewAssessment) {
   return null;
 }
 
+// generateText (not streamText) is used here because the priority is
+// extracting a validated structured object via Output.object(), not streaming
+// raw tokens. The UI streams the final report separately via the route handler.
 async function runModelReview({
   request,
   baselineAssessment,
@@ -266,6 +284,9 @@ async function runModelReview({
   };
 }
 
+// Fail-closed fallback: when any model call fails, the deterministic baseline
+// becomes the final answer. The product still returns a governable result with
+// a full audit trail — no silent failures, no empty responses.
 export function buildDeterministicFallbackReview({
   request,
   baselineAssessment = assessChangeRisk(request),
@@ -494,7 +515,25 @@ export async function reviewChangeRisk(
   }
 }
 
+function logReviewTrail(result: ChangeReviewResult) {
+  // Structured log for observability. In production this feeds Vercel's runtime
+  // logs and could be forwarded to a log drain for review-path analytics.
+  console.log(JSON.stringify({
+    event: 'review_complete',
+    path: result.trail.reviewPath,
+    risk: result.assessment.riskLevel,
+    confidence: result.assessment.confidence,
+    action: result.assessment.recommendedAction,
+    escalated: result.trail.escalationTriggered,
+    fallback: result.trail.fallbackUsed,
+    primaryModel: result.trail.primaryModelId,
+    finalModel: result.trail.finalModelId,
+  }));
+}
+
 export function buildReviewReport(result: ChangeReviewResult) {
+  logReviewTrail(result);
+
   const lines = [
     'Risk rating:',
     `- ${result.assessment.riskLevel}`,

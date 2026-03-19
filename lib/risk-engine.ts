@@ -1,3 +1,10 @@
+// Deterministic risk engine: pure heuristic scoring with no model dependency.
+// This engine serves three roles:
+// 1. Safety floor — the fallback when models are unavailable or fail.
+// 2. Baseline cross-check — the model prompt includes this assessment so the
+//    AI path can agree, disagree, or refine rather than starting from scratch.
+// 3. Eval anchor — the fixture eval suite runs against this engine because its
+//    output is deterministic and reproducible across runs.
 import { normalizeChangeRequest, type ChangeRequest, type EvidenceStrength, type RiskAssessment } from '@/lib/types';
 
 const criticalSignals = [
@@ -543,6 +550,10 @@ export function assessChangeRisk(input: Partial<ChangeRequest>) {
 
   let riskLevel: RiskAssessment['riskLevel'];
 
+  // Risk tier logic: weak evidence without a critical signal produces 'unknown'
+  // rather than a conservative 'medium'. This is intentional — forcing a tier
+  // when the evidence cannot support it would undermine trust in the output.
+  // Enterprise reviewers need to know when the system genuinely cannot decide.
   if (evidenceStrength === 'weak' && !hasCriticalSignal) {
     riskLevel = 'unknown';
   } else if (score >= 55 || (hasCriticalSignal && request.environment === 'production')) {

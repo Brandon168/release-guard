@@ -1,3 +1,8 @@
+// Repo grounding: loads repo-local policy, taxonomy, and calibration examples
+// from .changeRisk/ and assembles them into a prompt block for the model.
+// This uses Node.js fs (not Edge-compatible) intentionally — repo grounding
+// reads from the deployed filesystem, which requires the Node.js runtime on
+// Vercel. Edge Runtime would be inappropriate here.
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 

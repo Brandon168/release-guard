@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "eval": "tsx scripts/eval.ts",
     "risk:pr": "tsx scripts/pr-risk.ts",
-    "check": "pnpm typecheck && pnpm lint && pnpm eval"
+    "check": "pnpm typecheck && pnpm lint && pnpm eval --baseline-only"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.118",

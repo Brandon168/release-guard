@@ -23,6 +23,9 @@ import {
   createTextResponse,
 } from '@/lib/ui-stream';
 
+// Vercel serverless function timeout. The review pipeline can take 10-20s when
+// the primary model escalates to the stronger model, so 30s provides headroom.
+// If both model calls time out, the deterministic fallback still completes.
 export const maxDuration = 30;
 
 type AnalyzeRequestBody = {
