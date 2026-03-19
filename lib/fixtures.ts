@@ -368,8 +368,8 @@ export function getFixtureById(id: string) {
 export const featuredFixtureIds = [
   'billing-banner-copy',
   'auth-sdk-upgrade',
-  'drop-legacy-column',
-  'optimize-api-performance',
+  'ingress-rewrite',
+  'new-cache-layer',
 ] as const;
 
 export const featuredFixtures = featuredFixtureIds
